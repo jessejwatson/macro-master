@@ -31,3 +31,7 @@ bin/mm help
 replace `OWNER` and `sha256` with the real values.
 `scripts/brew-local.sh` installs from this working copy through a local tap
 and runs `brew test`; `scripts/brew-local.sh uninstall` removes it again.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
