@@ -6,6 +6,7 @@ class MacroMaster < Formula
   head "https://github.com/jessejwatson/macro-master.git", branch: "main"
 
   depends_on "go" => :build
+  depends_on "fzf"
   depends_on "git"
 
   def install
@@ -22,8 +23,6 @@ class MacroMaster < Formula
         zsh:  eval "$(mm init zsh)"       in ~/.zshrc
         bash: eval "$(mm init bash)"      in ~/.bashrc
         fish: mm init fish | source       in ~/.config/fish/config.fish
-
-      fzf is optional; `brew install fzf` for fuzzy search in the picker.
     EOS
   end
 

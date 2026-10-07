@@ -13,7 +13,9 @@ make build                 # bin/mm
 make install               # copies bin/mm to ~/.local/bin (PREFIX=... to change)
 ```
 
-Requires Go (stdlib only) and git. `fzf` is optional for the picker.
+Requires Go (stdlib only) and git. `fzf` gives the picker fuzzy search and
+a preview; without it `mm` falls back to a numbered menu. The Homebrew formula
+installs `fzf` automatically.
 
 ## Try it without touching your real setup
 
