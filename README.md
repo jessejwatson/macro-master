@@ -2,8 +2,9 @@
 
 Save and run macro commands from the terminal. Copy a command, run
 `mm add <name>`, and run it later with `mm <name>`, or just `mm` for a picker.
-Libraries can be plain folders or git repos that sync automatically, so a team
-can share macros. See `macro-master-plan.md` for the full design.
+Macros can be organised in folders (`mm web/deploy`), and libraries can be
+plain folders or git repos that sync automatically, so a team can share
+macros. See `macro-master-plan.md` for the full design.
 
 ## Build and test
 

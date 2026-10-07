@@ -27,7 +27,7 @@ func (a *App) resolve(addr string) (store.Ref, error) {
 		for i, m := range matches {
 			ids[i] = m.ID()
 		}
-		return store.Ref{}, fmt.Errorf("%q is in more than one library; use one of: %s", addr, strings.Join(ids, ", "))
+		return store.Ref{}, fmt.Errorf("%q matches more than one macro; use one of: %s", addr, strings.Join(ids, ", "))
 	}
 
 	msg := fmt.Sprintf("there is no macro called %q", addr)

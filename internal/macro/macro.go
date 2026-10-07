@@ -29,7 +29,7 @@ var Reserved = map[string]bool{
 	"add": true, "edit": true, "show": true, "print": true, "rm": true,
 	"mv": true, "ls": true, "fav": true, "lib": true, "sync": true,
 	"auth": true, "trust": true, "init": true, "completion": true,
-	"run": true, "help": true, "version": true, "__complete": true,
+	"run": true, "rename": true, "help": true, "version": true, "__complete": true,
 }
 
 // ValidateName reports why name can't be used as a macro or library name.

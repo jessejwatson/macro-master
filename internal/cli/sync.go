@@ -142,22 +142,35 @@ func childEnv(extra ...string) []string {
 	return append(env, extra...)
 }
 
-// checkWritable refuses changes to a library the user can't push to.
-func (a *App) checkWritable(libName string) error {
-	ls := a.store.State.Libraries[libName]
-	if ls == nil || ls.Access != store.AccessReadOnly {
-		return nil
+// checkWritable refuses changes to libraries the user can't push to.
+func (a *App) checkWritable(libNames ...string) error {
+	for _, libName := range libNames {
+		ls := a.store.State.Libraries[libName]
+		if ls == nil || ls.Access != store.AccessReadOnly {
+			continue
+		}
+		reason := ls.AccessReason
+		if reason == "" {
+			reason = "no write permission"
+		}
+		return fmt.Errorf("%s is read-only for you (%s); you can still run, fav and trust its macros", libName, reason)
 	}
-	reason := ls.AccessReason
-	if reason == "" {
-		reason = "no write permission"
-	}
-	return fmt.Errorf("%s is read-only for you (%s); you can still run, fav and trust its macros", libName, reason)
+	return nil
 }
 
-// beforeChange brings a synced library up to date before add, edit, rm or
-// mv, waiting at most a few seconds before carrying on offline.
-func (a *App) beforeChange(libName string) {
+// beforeChange brings synced libraries up to date before add, edit, rm or
+// mv, waiting at most a few seconds each before carrying on offline.
+func (a *App) beforeChange(libNames ...string) {
+	seen := map[string]bool{}
+	for _, n := range libNames {
+		if !seen[n] {
+			seen[n] = true
+			a.pullBeforeChange(n)
+		}
+	}
+}
+
+func (a *App) pullBeforeChange(libName string) {
 	lib, err := a.store.Library(libName)
 	if err != nil || !lib.Synced || !a.gitOK() {
 		return

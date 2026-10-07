@@ -2,6 +2,7 @@ package store
 
 import (
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -153,4 +154,38 @@ func (st *State) prune(macros, libs map[string]bool, dryRun bool) bool {
 		}
 	}
 	return changed
+}
+
+// RenamePrefix moves every entry under from ("lib" or "lib/folder") to
+// sit under to instead, for folder and library renames.
+func (st *State) RenamePrefix(from, to string) {
+	st.init()
+	move := func(id string) (string, bool) {
+		if rest, ok := strings.CutPrefix(id, from+"/"); ok {
+			return to + "/" + rest, true
+		}
+		return id, false
+	}
+	for i, id := range st.Favourites {
+		st.Favourites[i], _ = move(id)
+	}
+	slices.Sort(st.Favourites)
+	for id, t := range st.LastRun {
+		if n, ok := move(id); ok {
+			delete(st.LastRun, id)
+			st.LastRun[n] = t
+		}
+	}
+	for id, t := range st.Trust {
+		if n, ok := move(id); ok {
+			delete(st.Trust, id)
+			st.Trust[n] = t
+		}
+	}
+	if !strings.Contains(from, "/") && !strings.Contains(to, "/") {
+		if ls, ok := st.Libraries[from]; ok {
+			delete(st.Libraries, from)
+			st.Libraries[to] = ls
+		}
+	}
 }

@@ -84,8 +84,13 @@ func TestFindAndTarget(t *testing.T) {
 	if got := s.Find("missing"); len(got) != 0 {
 		t.Errorf("Find(missing) = %+v", got)
 	}
-	if _, err := s.Target("nolib/x"); err == nil {
-		t.Error("Target into missing library should fail")
+	if r, err := s.Target("nolib/x"); err != nil || r.ID() != "personal/nolib/x" {
+		t.Errorf("Target with an unknown first segment should be a folder in the default library: %+v %v", r, err)
+	}
+	for _, bad := range []string{"../x", "a/../../x", "/x", "a//x", "A/x", "a/b/c/d/e/f/x"} {
+		if _, err := s.Target(bad); err == nil {
+			t.Errorf("Target(%q) should fail", bad)
+		}
 	}
 	if _, err := s.Target("ls"); err == nil {
 		t.Error("Target with reserved name should fail")

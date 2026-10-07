@@ -149,7 +149,14 @@ func (r Repo) Commit(msg string, paths ...string) (bool, error) {
 		add = append(add, ".")
 	}
 	if _, err := r.git(nil, append(add, paths...)...); err != nil {
-		return false, err
+		if len(paths) == 0 {
+			return false, err
+		}
+		// A path git never tracked (say, a file made by hand then moved)
+		// fails the pathspec; stage everything instead.
+		if _, err := r.git(nil, "add", "-A", "--", "."); err != nil {
+			return false, err
+		}
 	}
 	if _, err := r.git(nil, "diff", "--cached", "--quiet"); err == nil {
 		return false, nil // nothing staged

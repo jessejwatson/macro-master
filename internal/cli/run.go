@@ -104,7 +104,7 @@ func (a *App) runMacro(ref store.Ref, args []string) error {
 	script := ref.Path
 	lib, _ := a.store.Library(ref.Library)
 	if m.Body != macro.Parse(content).Body || lib.Synced {
-		tmp, err := os.CreateTemp("", "mm-"+ref.Name+"-*"+macro.Ext)
+		tmp, err := os.CreateTemp("", "mm-"+ref.Leaf()+"-*"+macro.Ext)
 		if err != nil {
 			return err
 		}

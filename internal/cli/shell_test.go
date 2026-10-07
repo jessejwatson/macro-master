@@ -21,7 +21,7 @@ func TestComplete(t *testing.T) {
 		"dn":                      "dns",
 		"infra/":                  "infra/deploy infra/dns",
 		"add ":                    "--stdin infra/ personal/",
-		"lib ":                    "add default ls rm",
+		"lib ":                    "add default ls rename rm share",
 		"lib rm ":                 "infra personal",
 		"init ":                   "bash fish zsh",
 		"personal/deploy ":        "host= port=",

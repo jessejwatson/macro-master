@@ -7,6 +7,8 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path"
+	"path/filepath"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -58,7 +60,11 @@ func (a *App) cmdAdd(args []string) error {
 	a.beforeChange(ref.Library)
 
 	parsed := macro.Parse(text)
-	fmt.Fprintf(a.Stderr, "Saving %s from the %s:\n\n", ref.ID(), source)
+	newFolder := ""
+	if _, err := os.Stat(filepath.Dir(ref.Path)); err != nil {
+		newFolder = fmt.Sprintf(" (creates folder %s/)", path.Dir(ref.ID()))
+	}
+	fmt.Fprintf(a.Stderr, "Saving %s%s from the %s:\n\n", ref.ID(), newFolder, source)
 	lines := strings.Split(text, "\n")
 	for i, l := range lines {
 		fmt.Fprintf(a.Stderr, "%4d  %s\n", i+1, l)
@@ -104,10 +110,7 @@ func (a *App) cmdAdd(args []string) error {
 	if err := a.trust(ref, content); err != nil {
 		return err
 	}
-	runAs := ref.Name
-	if len(a.store.Find(ref.Name)) > 1 {
-		runAs = ref.ID()
-	}
+	runAs := a.store.ShortAddr(ref)
 	fmt.Fprintf(a.Stderr, "Saved %s. Run it with: mm %s\n", ref.ID(), runAs)
 	return nil
 }
@@ -146,7 +149,7 @@ func (a *App) editMacro(ref store.Ref) error {
 	if err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp("", "mm-"+ref.Name+"-*"+macro.Ext)
+	tmp, err := os.CreateTemp("", "mm-"+ref.Leaf()+"-*"+macro.Ext)
 	if err != nil {
 		return err
 	}
@@ -254,124 +257,12 @@ func (a *App) cmdRm(args []string) error {
 		}
 		return err
 	}
+	a.store.RemoveEmptyDirs(ref.Library, filepath.Dir(ref.Path))
 	a.afterChange(ref.Library, "mm: rm "+ref.Name, ref.Path)
 	if err := a.store.UpdateState(func(st *store.State) { st.Forget(ref.ID()) }); err != nil {
 		return err
 	}
 	fmt.Fprintf(a.Stderr, "Deleted %s.\n", ref.ID())
-	return nil
-}
-
-func (a *App) cmdMv(args []string) error {
-	if len(args) != 2 {
-		return errors.New("usage: mm mv <name> <new-name or library/new-name>")
-	}
-	from, err := a.resolve(args[0])
-	if err != nil {
-		return err
-	}
-	destAddr := args[1]
-	if lib, ok := strings.CutSuffix(destAddr, "/"); ok {
-		destAddr = lib + "/" + from.Name // "infra/" keeps the name
-	} else if !strings.Contains(destAddr, "/") {
-		destAddr = from.Library + "/" + destAddr
-	}
-	to, err := a.store.Target(destAddr)
-	if err != nil {
-		return err
-	}
-	if to.ID() == from.ID() {
-		return errors.New("that's the same name and library; nothing to do")
-	}
-	for _, lib := range []string{from.Library, to.Library} {
-		if err := a.checkWritable(lib); err != nil {
-			return err
-		}
-	}
-	a.beforeChange(from.Library)
-	if to.Library != from.Library {
-		a.beforeChange(to.Library)
-	}
-	if !from.Exists() {
-		return fmt.Errorf("%s was deleted elsewhere", from.ID())
-	}
-	if to.Exists() {
-		return fmt.Errorf("%s already exists; remove or rename it first", to.ID())
-	}
-	before, _ := from.Read()
-	wasTrusted := a.trustStatus(from, before) == ""
-	if err := os.Rename(from.Path, to.Path); err != nil {
-		return err
-	}
-	if to.Library == from.Library {
-		a.afterChange(from.Library, "mm: mv "+from.Name+" to "+to.Name, from.Path, to.Path)
-	} else {
-		a.afterChange(from.Library, "mm: mv "+from.Name+" to "+to.ID(), from.Path)
-		a.afterChange(to.Library, "mm: add "+to.Name+" (moved from "+from.ID()+")", to.Path)
-	}
-	if err := a.store.UpdateState(func(st *store.State) { st.Rename(from.ID(), to.ID()) }); err != nil {
-		return err
-	}
-	if wasTrusted {
-		a.trust(to, before) // a trusted macro stays trusted after a move
-	}
-	fmt.Fprintf(a.Stderr, "Moved %s to %s.\n", from.ID(), to.ID())
-	return nil
-}
-
-func (a *App) cmdLs(args []string) error {
-	flags, args, err := splitFlags(args, "--fav")
-	if err != nil {
-		return err
-	}
-	if len(args) > 1 {
-		return errors.New("usage: mm ls [library] [--fav]")
-	}
-	libs := a.store.Libraries()
-	if len(args) == 1 {
-		lib, err := a.store.Library(args[0])
-		if err != nil {
-			return err
-		}
-		libs = []store.Library{lib}
-	}
-
-	w := tabwriter.NewWriter(a.Stdout, 0, 0, 2, ' ', 0)
-	shown := 0
-	for _, lib := range libs {
-		var rows []string
-		for _, ref := range a.store.Macros(lib.Name) {
-			fav := a.store.IsFavourite(ref.ID())
-			if flags["--fav"] && !fav {
-				continue
-			}
-			star := " "
-			if fav {
-				star = "★"
-			}
-			rows = append(rows, fmt.Sprintf("  %s %s\t%s", star, ref.Name, a.description(ref)))
-		}
-		if len(rows) == 0 && flags["--fav"] {
-			continue
-		}
-		if shown > 0 {
-			fmt.Fprintln(w)
-		}
-		fmt.Fprintln(w, lib.Name)
-		if len(rows) == 0 {
-			fmt.Fprintln(w, "    (empty)")
-		}
-		for _, r := range rows {
-			fmt.Fprintln(w, r)
-		}
-		shown++
-	}
-	w.Flush()
-	if len(a.store.AllMacros()) == 0 {
-		fmt.Fprintln(a.Stderr, "No macros yet. Copy a command, then run: mm add <name>")
-	} else if shown == 0 && flags["--fav"] {
-		fmt.Fprintln(a.Stderr, "No favourites yet. Add one with: mm fav <name>")
-	}
 	return nil
 }
 
@@ -407,7 +298,7 @@ func (a *App) cmdFav(args []string) error {
 
 func (a *App) cmdLib(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: mm lib ls | add <name> [git-url] | rm <name> | default <name>")
+		return errors.New("usage: mm lib ls | add <name> [git-url] | share <name> <git-url> | rename <old> <new> | rm <name> | default <name>")
 	}
 	sub, args := args[0], args[1:]
 	switch sub {
@@ -461,6 +352,18 @@ func (a *App) cmdLib(args []string) error {
 		fmt.Fprintf(a.Stderr, "Removed library %s.\n", name)
 		return nil
 
+	case "rename", "mv":
+		if len(args) != 2 {
+			return errors.New("usage: mm lib rename <old-name> <new-name>")
+		}
+		return a.libRename(args[0], args[1])
+
+	case "share":
+		if len(args) != 2 {
+			return errors.New("usage: mm lib share <name> <git-url>")
+		}
+		return a.libShare(args[0], args[1])
+
 	case "default":
 		name, err := oneArg("lib default", args)
 		if err != nil {
@@ -475,7 +378,7 @@ func (a *App) cmdLib(args []string) error {
 		fmt.Fprintf(a.Stderr, "New macros now go into %s.\n", name)
 		return nil
 	}
-	return fmt.Errorf("unknown lib command %q; use ls, add, rm or default", sub)
+	return fmt.Errorf("unknown lib command %q; use ls, add, share, rename, rm or default", sub)
 }
 
 // recordRun stamps the macro's last-run time for picker ordering.

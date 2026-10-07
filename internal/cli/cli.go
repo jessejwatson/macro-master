@@ -155,6 +155,8 @@ func (a *App) run(args []string) error {
 		return a.cmdRm(rest)
 	case "mv":
 		return a.cmdMv(rest)
+	case "rename":
+		return a.cmdRename(rest)
 	case "ls":
 		return a.cmdLs(rest)
 	case "fav":

@@ -10,14 +10,16 @@ Usage:
 Saving and changing macros:
   mm add <name>                 Save the clipboard as a macro, after a preview
   mm add <lib>/<name>           Same, into a specific library
+  mm add web/<name>             Into a folder (made if needed); nest up to 5 deep
   mm add <name> --stdin         Read the macro from stdin instead
   mm edit <name>                Open the macro in $EDITOR (default vi)
   mm rm <name>                  Delete a macro
-  mm mv <name> <new>            Rename; use <lib>/<new> or <lib>/ to move
+  mm rename <name> <new>        Rename a macro or folder where it is
+  mm mv <name> <dest>           Move a macro or folder (see Moving below)
   mm fav <name>                 Toggle favourite
 
 Looking at macros:
-  mm ls [lib] [--fav]           List macros by library; ★ marks favourites
+  mm ls [lib|folder] [--fav]    List macros as a tree; ★ marks favourites
   mm show <name>                Print a macro with its details
   mm print <name> [k=v...]      Print the filled-in command, for eval or pipes
 
@@ -25,6 +27,9 @@ Libraries:
   mm lib ls                     List libraries with access and sync status
   mm lib add <name>             Create a local library
   mm lib add <name> <git-url>   Clone a shared library that syncs with git
+  mm lib share <name> <git-url> Push a local library to an empty git repo
+                                and sync it from then on
+  mm lib rename <old> <new>     Rename a library (on this machine only)
   mm lib rm <name>              Remove a library from this machine
   mm lib default <name>         Set the library mm add saves into
 
@@ -39,7 +44,18 @@ Shell:
   mm help, mm --version
 
 Addressing macros:
-  Use name, or library/name when the name is in more than one library.
+  Every macro has a full path: library/folders/name, e.g. infra/web/deploy.
+  You can use any end part of it that's unique: deploy, web/deploy or
+  infra/web/deploy. If a name matches several macros, mm asks which one.
+  Libraries are what sync and share; folders are just for tidiness.
+
+Moving:
+  mm mv deploy ship             Plain name: rename in place
+  mm mv deploy web/             Trailing /: move into that folder or library
+  mm mv deploy infra/web/ship   Path: from the macro's own library, unless
+                                it starts with a library name
+  Folders move the same way: mm mv web/ ops/  or  mm rename web site
+  Favourites and trust move with them.
 
 Placeholders:
   Write {{name}} or {{name:default}} in a macro. mm asks for each one before
@@ -59,6 +75,13 @@ Shared libraries:
   changes straight after. A shared macro that is new or has changed since
   you trusted it is shown before it runs. Conflicting local versions are
   kept in ~/.config/mm/conflicts.
+
+Ignoring files:
+  A .mmignore file in a library lists paths that aren't macros, one a line:
+      docs/                     a folder
+      scripts/install.sh        a path from the library root
+      *-wip.sh                  a name anywhere
+  Hidden folders such as .git and .github are always skipped.
 
 Files:
   ~/.config/mm ($XDG_CONFIG_HOME/mm, or $MM_HOME if set) holds config.json,

@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 
@@ -142,36 +143,84 @@ func fishQuote(s string) string {
 }
 
 var subcommands = []string{
-	"add", "edit", "show", "print", "rm", "mv", "ls", "fav", "lib",
+	"add", "edit", "show", "print", "rm", "mv", "rename", "ls", "fav", "lib",
 	"sync", "auth", "trust", "init", "completion", "run", "help",
+}
+
+// addresses lists every way to name each id that resolves to just that
+// id: the full path, and each shorter tail of it that is unique.
+func addresses(ids []string) []string {
+	count := map[string]int{}
+	full := map[string]bool{}
+	for _, id := range ids {
+		full[id] = true
+		segs := strings.Split(id, "/")
+		for n := 1; n <= len(segs); n++ {
+			count[strings.Join(segs[len(segs)-n:], "/")]++
+		}
+	}
+	var out []string
+	for _, id := range ids {
+		segs := strings.Split(id, "/")
+		for n := 1; n <= len(segs); n++ {
+			addr := strings.Join(segs[len(segs)-n:], "/")
+			if count[addr] == 1 || full[addr] {
+				out = append(out, addr)
+			}
+		}
+	}
+	return out
+}
+
+// dirsOf adds every folder prefix ("a/", "a/b/") of each address.
+func dirsOf(addrs []string) []string {
+	var out []string
+	for _, a := range addrs {
+		for i := strings.Index(a, "/"); i >= 0; {
+			out = append(out, a[:i+1])
+			j := strings.Index(a[i+1:], "/")
+			if j < 0 {
+				break
+			}
+			i += j + 1
+		}
+	}
+	return out
 }
 
 // complete answers "mm __complete <words...>", where the last word is the
 // one being typed. It reads only local files: no sync, no network.
+// Paths complete one folder at a time.
 func complete(s *store.Store, words []string) []string {
 	if len(words) == 0 {
 		words = []string{""}
 	}
 	cur, prev := words[len(words)-1], words[:len(words)-1]
-	macros := func() []string {
-		var out []string
-		count := map[string]int{}
-		all := s.AllMacros()
-		for _, r := range all {
-			count[r.Name]++
-		}
-		for _, r := range all {
-			if count[r.Name] == 1 {
-				out = append(out, r.Name)
-			}
-			out = append(out, r.ID())
-		}
-		return out
+	var macroIDs, folderIDs []string
+	for _, r := range s.AllMacros() {
+		macroIDs = append(macroIDs, r.ID())
 	}
-	libs := func(suffix string) []string {
+	for _, f := range s.AllFolders() {
+		folderIDs = append(folderIDs, f.ID())
+	}
+	macros := func() []string {
+		addrs := addresses(macroIDs)
+		return append(addrs, dirsOf(addrs)...)
+	}
+	folders := func() []string {
 		var out []string
 		for _, l := range s.Libraries() {
-			out = append(out, l.Name+suffix)
+			out = append(out, l.Name+"/")
+		}
+		for _, a := range addresses(folderIDs) {
+			out = append(out, a+"/")
+		}
+		return append(out, dirsOf(addresses(folderIDs))...)
+	}
+	libs := func() []string {
+		var out []string
+		for _, l := range s.Libraries() {
+			out = append(out, l.Name)
 		}
 		return out
 	}
@@ -193,25 +242,26 @@ func complete(s *store.Store, words []string) []string {
 
 	var cands []string
 	if len(prev) == 0 {
-		cands = append(subcommands, macros()...)
+		cands = append(slices.Clone(subcommands), macros()...)
 	} else {
 		switch cmd := prev[0]; cmd {
 		case "add":
+			cands = []string{"--stdin"}
 			if len(prev) == 1 {
-				cands = append(libs("/"), "--stdin")
-			} else {
-				cands = []string{"--stdin"}
+				cands = append(cands, folders()...)
 			}
 		case "edit", "show", "rm", "fav", "trust":
 			if len(prev) == 1 {
 				cands = macros()
 			}
-		case "mv":
+		case "mv", "rename":
 			switch len(prev) {
 			case 1:
-				cands = macros()
+				cands = append(macros(), folders()...)
 			case 2:
-				cands = libs("/")
+				if cmd == "mv" {
+					cands = folders()
+				}
 			}
 		case "run", "print":
 			if len(prev) == 1 {
@@ -220,13 +270,19 @@ func complete(s *store.Store, words []string) []string {
 				cands = placeholders(prev[1])
 			}
 		case "ls":
-			cands = append(libs(""), "--fav")
+			cands = append(append(libs(), "--fav"), folders()...)
 		case "lib":
 			switch {
 			case len(prev) == 1:
-				cands = []string{"ls", "add", "rm", "default"}
-			case len(prev) == 2 && (prev[1] == "rm" || prev[1] == "default"):
-				cands = libs("")
+				cands = []string{"ls", "add", "share", "rename", "rm", "default"}
+			case len(prev) == 2 && (prev[1] == "rm" || prev[1] == "default" || prev[1] == "rename"):
+				cands = libs()
+			case len(prev) == 2 && prev[1] == "share":
+				for _, l := range s.Libraries() {
+					if !l.Synced {
+						cands = append(cands, l.Name)
+					}
+				}
 			}
 		case "sync":
 			for _, l := range s.Libraries() {
@@ -259,9 +315,24 @@ func complete(s *store.Store, words []string) []string {
 			cands = placeholders(cmd)
 		}
 	}
+
+	// Offer only the next path segment: "infra/" rather than every macro
+	// under it.
+	seen := map[string]bool{}
 	var out []string
 	for _, c := range cands {
-		if strings.HasPrefix(c, cur) {
+		rest, ok := strings.CutPrefix(c, cur)
+		if !ok {
+			continue
+		}
+		if i := strings.Index(rest, "/"); i >= 0 && i < len(rest)-1 {
+			c = cur + rest[:i+1]
+		}
+		if c == cur && strings.HasSuffix(c, "/") {
+			continue // already typed in full
+		}
+		if !seen[c] {
+			seen[c] = true
 			out = append(out, c)
 		}
 	}

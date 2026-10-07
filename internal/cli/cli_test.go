@@ -69,12 +69,11 @@ func ans(s string) *string { return &s }
 // save writes a macro file directly.
 func (ta *testApp) save(t *testing.T, id, content string) {
 	t.Helper()
-	lib, name, _ := strings.Cut(id, "/")
-	dir := filepath.Join(ta.Home, "libraries", lib)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	p := filepath.Join(ta.Home, "libraries", filepath.FromSlash(id)+".sh")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, name+".sh"), []byte(content), 0o755); err != nil {
+	if err := os.WriteFile(p, []byte(content), 0o755); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -150,7 +149,8 @@ func TestAddErrors(t *testing.T) {
 		{"echo", ans("\n\n"), []string{"add", "Bad"}, "not a valid name"},
 		{"  \n", ans("\n\n"), []string{"add", "x"}, "clipboard is empty"},
 		{"echo", nil, []string{"add", "x"}, "needs a terminal"},
-		{"echo", ans("\n\n"), []string{"add", "nolib/x"}, "no library"},
+		{"echo", ans("\n\n"), []string{"add", "Nolib/x"}, "not a valid name"},
+		{"echo", ans("\n\n"), []string{"add", "a/../x"}, "not a valid name"},
 		{"echo", ans("\n\n"), []string{"add", "x", "--bogus"}, "unknown option"},
 	}
 	for _, c := range cases {
@@ -315,7 +315,7 @@ func TestLsFavMvRm(t *testing.T) {
 
 	ta.run(nil, "fav", "one")
 	ta.run(nil, "ls")
-	want := "infra\n    (empty)\n\npersonal\n  ★ one  first one\n    two  \n"
+	want := "infra\n    (empty)\n\npersonal\n  ★ one  first one\n    two\n"
 	if ta.out.String() != want {
 		t.Errorf("ls = %q, want %q", ta.out, want)
 	}
