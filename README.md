@@ -14,7 +14,8 @@ make build                 # bin/mm
 make install               # copies bin/mm to ~/.local/bin (PREFIX=... to change)
 ```
 
-Requires Go (stdlib only) and git. `fzf` gives the picker fuzzy search and
+Requires Go and git; the only Go dependency is [lipgloss](https://github.com/charmbracelet/lipgloss)
+for colours, panels and trees. `fzf` gives the picker fuzzy search and
 a preview; without it `mm` falls back to a numbered menu. The Homebrew formula
 installs `fzf` automatically.
 

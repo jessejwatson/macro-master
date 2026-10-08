@@ -4,9 +4,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path"
 	"sort"
 	"strings"
 	"text/tabwriter"
+
+	"charm.land/lipgloss/v2"
+	"charm.land/lipgloss/v2/tree"
 
 	"macro-master/internal/store"
 )
@@ -78,6 +82,11 @@ func (a *App) cmdLs(args []string) error {
 		if shown > 0 {
 			fmt.Fprintln(w)
 		}
+		if u := a.outUI(); u.on {
+			fmt.Fprintln(a.Stdout, a.styledTree(u, sc.lib, sc.folder, refs))
+			shown++
+			continue
+		}
 		header := sc.lib
 		if sc.folder != "" {
 			header += "/" + sc.folder + "/"
@@ -96,7 +105,8 @@ func (a *App) cmdLs(args []string) error {
 		fmt.Fprintln(a.Stderr, "No favourites yet. Add one with: mm fav <name>")
 	}
 	if len(skipped) > 0 {
-		fmt.Fprintf(a.Stderr, "\n%d item(s) skipped:\n", len(skipped))
+		u := a.errUI()
+		fmt.Fprintf(a.Stderr, "\n%s%d item(s) skipped:\n", u.icon(u.icons.warn, colWarn), len(skipped))
 		for _, s := range skipped {
 			fmt.Fprintf(a.Stderr, "  %s\n", s)
 		}
@@ -144,4 +154,88 @@ func (a *App) printTree(w io.Writer, refs map[string]store.Ref, prefix string, d
 		fmt.Fprintf(w, "    %s%s/\n", indent, f)
 		a.printTree(w, refs, prefix+f+"/", depth+1)
 	}
+}
+
+// styledTree draws one library (or folder) as a tree with branch lines,
+// favourites starred and descriptions lined up in a dimmed column.
+func (a *App) styledTree(u ui, lib, folder string, refs map[string]store.Ref) string {
+	l, _ := a.store.Library(lib)
+	root := u.icon(u.icons.lib, colAccent)
+	if l.Synced {
+		root = u.icon(u.icons.synced, colAccent)
+	}
+	root += u.accent(lib)
+	if folder != "" {
+		root += u.fg(colFolder, "/"+folder+"/")
+	}
+	count := fmt.Sprintf("%d macro", len(refs))
+	if len(refs) != 1 {
+		count += "s"
+	}
+	root += "  " + u.faint(count)
+
+	label := func(r store.Ref, name string) string {
+		l := u.icon(u.icons.macro, colBorder) + name
+		if a.store.IsFavourite(r.ID()) {
+			l = u.fg(colWarn, u.icons.fav) + " " + l
+		}
+		return l
+	}
+	// Descriptions line up just past the widest label, counting the four
+	// columns of branch lines each level adds.
+	descs := map[string]string{}
+	descCol := 0
+	for rel, r := range refs {
+		if descs[rel] = a.description(r); descs[rel] != "" {
+			depth := strings.Count(rel, "/") + 1
+			descCol = max(descCol, 4*depth+lipgloss.Width(label(r, path.Base(rel))))
+		}
+	}
+
+	branch := lipgloss.NewStyle().Foreground(colBorder).PaddingRight(1)
+	newTree := func(root string) *tree.Tree {
+		return tree.Root(root).Enumerator(tree.RoundedEnumerator).EnumeratorStyle(branch).IndenterStyle(branch)
+	}
+	var build func(t *tree.Tree, prefix string, depth int)
+	build = func(t *tree.Tree, prefix string, depth int) {
+		var names []string
+		folders := map[string]bool{}
+		for rel := range refs {
+			rest, ok := strings.CutPrefix(rel, prefix)
+			if !ok {
+				continue
+			}
+			if dir, _, isFolder := strings.Cut(rest, "/"); isFolder {
+				folders[dir] = true
+			} else {
+				names = append(names, rest)
+			}
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			r := refs[prefix+name]
+			l := label(r, name)
+			if d := descs[prefix+name]; d != "" {
+				pad := descCol - 4*(depth+1) - lipgloss.Width(l) + 2
+				l += strings.Repeat(" ", pad) + u.faint(d)
+			}
+			t.Child(l)
+		}
+		dirs := make([]string, 0, len(folders))
+		for f := range folders {
+			dirs = append(dirs, f)
+		}
+		sort.Strings(dirs)
+		for _, f := range dirs {
+			sub := newTree(u.icon(u.icons.folder, colFolder) + u.fg(colFolder, f+"/"))
+			build(sub, prefix+f+"/", depth+1)
+			t.Child(sub)
+		}
+	}
+	t := newTree(root)
+	build(t, "", 0)
+	if len(refs) == 0 {
+		t.Child(u.faint("(empty)"))
+	}
+	return t.String()
 }

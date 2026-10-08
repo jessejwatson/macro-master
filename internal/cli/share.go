@@ -109,7 +109,7 @@ func (a *App) libShare(name, url string) error {
 	a.refreshAccess(lib, true)
 	a.store.UpdateState(func(st *store.State) { st.Lib(name).LastPull = time.Now().UTC() })
 
-	fmt.Fprintf(a.Stderr, "Shared %s: it now syncs with %s.\n", name, url)
+	a.done("Shared %s: it now syncs with %s.", name, url)
 	for _, f := range replaced {
 		fmt.Fprintf(a.Stderr, "Note: the repo already had %s; your version replaced it (git history keeps the old one).\n", f)
 	}

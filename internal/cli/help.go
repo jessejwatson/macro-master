@@ -1,5 +1,54 @@
 package cli
 
+import (
+	"regexp"
+	"strings"
+)
+
+var (
+	helpRow  = regexp.MustCompile(`^(\s+)(\S.*?)(\s{2,})(\S.*)$`)
+	helpArgs = regexp.MustCompile(`<[^>]*>|\[[^\]]*\]`)
+)
+
+// help colours the help text: headings, then commands in the left column
+// with their <args> and [options] dimmed.
+func (u ui) help(text string) string {
+	if !u.on {
+		return text
+	}
+	lines := strings.Split(text, "\n")
+	for i, l := range lines {
+		trimmed := strings.TrimSpace(l)
+		indent := len(l) - len(strings.TrimLeft(l, " "))
+		switch {
+		case i == 0:
+			name, rest, _ := strings.Cut(l, " ")
+			lines[i] = u.accent(name) + " " + u.bold(rest)
+		case indent == 0 && strings.HasSuffix(l, ":"):
+			lines[i] = u.accent(l)
+		case strings.HasPrefix(trimmed, "mm ") || strings.HasPrefix(trimmed, "#") || indent >= 6:
+			if m := helpRow.FindStringSubmatch(l); m != nil {
+				lines[i] = m[1] + u.helpCmd(m[2]) + m[3] + m[4]
+			} else if strings.HasPrefix(trimmed, "mm ") {
+				lines[i] = l[:indent] + u.helpCmd(trimmed)
+			}
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (u ui) helpCmd(cmd string) string {
+	var b strings.Builder
+	last := 0
+	for _, m := range helpArgs.FindAllStringIndex(cmd, -1) {
+		b.WriteString(u.fg(colCmd, cmd[last:m[0]]))
+		b.WriteString(u.faint(cmd[m[0]:m[1]]))
+		last = m[1]
+	}
+	b.WriteString(u.fg(colCmd, cmd[last:]))
+	return b.String()
+}
+
 const helpText = `mm — save and run macro commands
 
 Usage:
@@ -82,6 +131,11 @@ Ignoring files:
       scripts/install.sh        a path from the library root
       *-wip.sh                  a name anywhere
   Hidden folders such as .git and .github are always skipped.
+
+Looks:
+  Colours and panels appear when writing to a terminal; pipes and
+  NO_COLOR=1 get plain text. MM_ICONS=nerd uses Nerd Font icons. The picker
+  previews macros with bat when it's installed.
 
 Files:
   ~/.config/mm ($XDG_CONFIG_HOME/mm, or $MM_HOME if set) holds config.json,

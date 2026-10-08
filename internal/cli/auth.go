@@ -35,7 +35,7 @@ func (a *App) cmdAuth(args []string) error {
 		if err := tk.Remove(host); err != nil {
 			return fmt.Errorf("no token for %s was stored", host)
 		}
-		fmt.Fprintf(a.Stderr, "Removed the token for %s from %s.\n", host, where)
+		a.done("Removed the token for %s from %s.", host, where)
 		a.recheckHost(host)
 		return nil
 	}
@@ -62,7 +62,7 @@ func (a *App) cmdAuth(args []string) error {
 	if err := tk.Store(host, token); err != nil {
 		return fmt.Errorf("couldn't save the token: %w", err)
 	}
-	fmt.Fprintf(a.Stderr, "Saved the token for %s in %s.\n", host, where)
+	a.done("Saved the token for %s in %s.", host, where)
 	a.recheckHost(host)
 	return nil
 }

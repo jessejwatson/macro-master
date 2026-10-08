@@ -39,7 +39,7 @@ func (a *App) resolve(addr string) (store.Ref, error) {
 	if !a.Interactive || len(a.store.AllMacros()) == 0 {
 		return store.Ref{}, fmt.Errorf("%s", msg)
 	}
-	fmt.Fprintf(a.Stderr, "mm: %s\n", msg)
+	a.notef("%s", msg)
 	ok, err := a.confirm("Open the picker?", true)
 	if err != nil {
 		return store.Ref{}, err

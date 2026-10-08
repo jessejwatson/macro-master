@@ -95,7 +95,7 @@ func (a *App) runMacro(ref store.Ref, args []string) error {
 			a.recordRun(ref)
 			return writeSourceFile(f, a.Getenv("MM_SHELL"), m, rest)
 		}
-		fmt.Fprintf(a.Stderr, "mm: %s is meant to change your current shell, which needs the shell hook: add eval \"$(mm init zsh)\" to ~/.zshrc (or the bash/fish equivalent). Running it normally.\n", ref.ID())
+		a.notef("%s is meant to change your current shell, which needs the shell hook: add eval \"$(mm init zsh)\" to ~/.zshrc (or the bash/fish equivalent). Running it normally.", ref.ID())
 	}
 
 	// Run the saved file, or a copy when placeholders were filled or the

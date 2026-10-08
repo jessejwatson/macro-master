@@ -28,6 +28,11 @@ type App struct {
 	// Interactive is true when stdin and stdout are both terminals, which
 	// the picker needs.
 	Interactive bool
+	// StyleOut and StyleErr turn on colours and panels for stdout and
+	// stderr. Icons is "nerd" for Nerd Font glyphs; Width is the terminal's.
+	StyleOut, StyleErr bool
+	Icons              string
+	Width              int
 
 	Home          string
 	ReadClipboard func() (string, error)
@@ -63,6 +68,10 @@ func NewApp(version string) *App {
 		Stderr:        os.Stderr,
 		ReadClipboard: clipboard.Read,
 		Getenv:        os.Getenv,
+		StyleOut:      styleWanted(os.Stdout),
+		StyleErr:      styleWanted(os.Stderr),
+		Icons:         os.Getenv("MM_ICONS"),
+		Width:         termWidth(),
 	}
 	stdinTTY, stdoutTTY := isTerminal(os.Stdin), isTerminal(os.Stdout)
 	a.Interactive = stdinTTY && stdoutTTY
@@ -94,7 +103,11 @@ func (a *App) Run(args []string) int {
 	case errors.As(err, &code):
 		return int(code)
 	default:
-		fmt.Fprintf(a.Stderr, "mm: %v\n", err)
+		if u := a.errUI(); u.on {
+			fmt.Fprintf(a.Stderr, "%s%s\n", u.icon(u.icons.err, colBad), u.fg(colBad, "error:")+" "+err.Error())
+		} else {
+			fmt.Fprintf(a.Stderr, "mm: %v\n", err)
+		}
 		return 1
 	}
 }
@@ -103,10 +116,11 @@ func (a *App) run(args []string) error {
 	if len(args) > 0 {
 		switch args[0] {
 		case "help", "-h", "--help":
-			fmt.Fprint(a.Stdout, helpText)
+			fmt.Fprint(a.Stdout, a.outUI().help(helpText))
 			return nil
 		case "--version", "version":
-			fmt.Fprintf(a.Stdout, "mm %s\n", a.Version)
+			u := a.outUI()
+			fmt.Fprintf(a.Stdout, "%s %s\n", u.accent("mm"), a.Version)
 			return nil
 		}
 	}
@@ -124,6 +138,9 @@ func (a *App) run(args []string) error {
 			fmt.Fprintln(a.Stdout, c)
 		}
 		return nil
+	}
+	if len(args) > 0 && args[0] == "__preview" {
+		return a.cmdPreview(args[1:])
 	}
 	if len(args) > 0 && (args[0] == "init" || args[0] == "completion") {
 		return a.cmdShellScript(args[0], args[1:])
@@ -198,7 +215,7 @@ func (a *App) openStore() error {
 		return err
 	}
 	for _, w := range s.Warnings {
-		fmt.Fprintf(a.Stderr, "mm: warning: %s\n", w)
+		a.warnf("%s", w)
 	}
 	a.store = s
 	return s.Prune()
@@ -208,6 +225,14 @@ func (a *App) openStore() error {
 func (a *App) ask(question string) (string, error) {
 	if a.Prompts == nil {
 		return "", errors.New("this needs a terminal to answer questions")
+	}
+	if u := a.errUI(); u.on {
+		// A trailing [default] or [y/N] hint is dimmed.
+		q, hint := strings.TrimRight(question, " "), ""
+		if i := strings.LastIndex(q, " ["); i >= 0 && (strings.HasSuffix(q, "]") || strings.HasSuffix(q, "]:")) {
+			q, hint = q[:i], q[i:]
+		}
+		question = u.accent("? ") + u.bold(q) + u.faint(hint) + " "
 	}
 	fmt.Fprint(a.Stderr, question)
 	line, err := a.Prompts.ReadString('\n')
@@ -220,11 +245,11 @@ func (a *App) ask(question string) (string, error) {
 
 // confirm asks a yes/no question; def is the answer for a bare Enter.
 func (a *App) confirm(question string, def bool) (bool, error) {
-	hint := " [y/N] "
+	hint := "[y/N]"
 	if def {
-		hint = " [Y/n] "
+		hint = "[Y/n]"
 	}
-	ans, err := a.ask(question + hint)
+	ans, err := a.ask(question + " " + hint + " ")
 	if err != nil {
 		return false, err
 	}

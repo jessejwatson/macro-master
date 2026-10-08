@@ -46,7 +46,7 @@ func (a *App) syncedLibraries() []store.Library {
 // showNotices prints messages left by background syncs, once.
 func (a *App) showNotices() {
 	if len(a.store.Libraries()) > 0 && len(a.syncedLibraries()) > 0 && !a.gitOK() && !a.store.State.GitMissingNoticed {
-		fmt.Fprintln(a.Stderr, "mm: git isn't installed, so synced libraries won't sync; local libraries still work")
+		a.notef("git isn't installed, so synced libraries won't sync; local libraries still work")
 		a.store.UpdateState(func(st *store.State) { st.GitMissingNoticed = true })
 	}
 	if len(a.store.State.Notices) == 0 {
@@ -57,7 +57,7 @@ func (a *App) showNotices() {
 		notices, st.Notices = st.Notices, nil
 	})
 	for _, n := range notices {
-		fmt.Fprintf(a.Stderr, "mm: %s\n", n)
+		a.notef("%s", n)
 	}
 }
 
@@ -102,7 +102,7 @@ func (a *App) spawnSync(libs ...string) {
 		spawn = a.spawnReal
 	}
 	if err := spawn(args); err != nil {
-		fmt.Fprintf(a.Stderr, "mm: warning: can't start a background sync: %v\n", err)
+		a.warnf("can't start a background sync: %v", err)
 	}
 }
 
@@ -178,25 +178,25 @@ func (a *App) pullBeforeChange(libName string) {
 	r := gitx.Repo{Dir: lib.Path}
 	unlock, err := store.Lock(r.LockPath(), preChangeTimeout, syncLockStale)
 	if err != nil {
-		fmt.Fprintf(a.Stderr, "mm: %s is busy syncing; working with the local copy\n", libName)
+		a.notef("%s is busy syncing; working with the local copy", libName)
 		return
 	}
 	defer unlock()
 	if _, err := r.Commit("mm: sync local changes"); err != nil {
-		fmt.Fprintf(a.Stderr, "mm: warning: %s: %v\n", libName, err)
+		a.warnf("%s: %v", libName, err)
 	}
 	ctx, cancel := gitx.WithTimeout(preChangeTimeout)
 	defer cancel()
 	if _, err := r.Fetch(ctx); err != nil {
-		fmt.Fprintf(a.Stderr, "mm: couldn't reach %s's remote; working offline\n", libName)
+		a.notef("couldn't reach %s's remote; working offline", libName)
 		return
 	}
 	conflicts, err := r.Rebase(a.conflictSaver(libName))
 	for _, n := range conflictNotices(libName, conflicts) {
-		fmt.Fprintf(a.Stderr, "mm: %s\n", n)
+		a.notef("%s", n)
 	}
 	if err != nil {
-		fmt.Fprintf(a.Stderr, "mm: warning: %s: %v\n", libName, err)
+		a.warnf("%s: %v", libName, err)
 	}
 }
 
@@ -214,13 +214,13 @@ func (a *App) afterChange(libName, msg string, paths ...string) {
 	}
 	unlock, err := store.Lock(r.LockPath(), 10*time.Second, syncLockStale)
 	if err != nil {
-		fmt.Fprintf(a.Stderr, "mm: %s is busy; your change will be committed on the next sync\n", libName)
+		a.notef("%s is busy; your change will be committed on the next sync", libName)
 		return
 	}
 	_, err = r.Commit(msg, rel...)
 	unlock()
 	if err != nil {
-		fmt.Fprintf(a.Stderr, "mm: warning: couldn't commit to %s (%v); it will be retried on the next sync\n", libName, err)
+		a.warnf("couldn't commit to %s (%v); it will be retried on the next sync", libName, err)
 		return
 	}
 	a.spawnSync(libName)
@@ -315,7 +315,8 @@ func (a *App) cmdSync(args []string) error {
 			if bg {
 				fmt.Fprintf(a.Stderr, "%s %s: %v\n", time.Now().Format(time.RFC3339), l.Name, err)
 			} else {
-				fmt.Fprintf(a.Stderr, "%s: sync failed: %v\n", l.Name, err)
+				u := a.errUI()
+				fmt.Fprintf(a.Stderr, "%s%s: %s %v\n", u.icon(u.icons.err, colBad), u.bold(l.Name), u.fg(colBad, "sync failed:"), err)
 			}
 		}
 	}
@@ -347,7 +348,7 @@ func (a *App) syncLibrary(lib store.Library, fg bool) (err error) {
 	report := func(format string, args ...any) {
 		msg := fmt.Sprintf(format, args...)
 		if fg {
-			fmt.Fprintf(a.Stderr, "%s: %s\n", lib.Name, msg)
+			fmt.Fprintf(a.Stderr, "%s: %s\n", a.errUI().bold(lib.Name), msg)
 		}
 	}
 	defer func() {
@@ -368,7 +369,7 @@ func (a *App) syncLibrary(lib store.Library, fg bool) (err error) {
 		})
 		if fg {
 			for _, n := range notices {
-				fmt.Fprintf(a.Stderr, "mm: %s\n", n)
+				a.notef("%s", n)
 			}
 		}
 	}()
@@ -489,7 +490,7 @@ func (a *App) refreshAccess(lib store.Library, fg bool) {
 		}
 		access, err = a.hostsClient().Check(typ, api, remote, token)
 		if errors.Is(err, hosts.ErrBadToken) && fg {
-			fmt.Fprintf(a.Stderr, "mm: %s rejected your token; run mm auth %s to set a new one\n", remote.Host, remote.Host)
+			a.notef("%s rejected your token; run mm auth %s to set a new one", remote.Host, remote.Host)
 		}
 	}
 	a.store.UpdateState(func(st *store.State) {
@@ -536,6 +537,6 @@ func (a *App) addSyncedLibrary(name, url string) error {
 	if access == store.AccessUnknown {
 		access = "permissions unknown"
 	}
-	fmt.Fprintf(a.Stderr, "Added synced library %s with %d macro(s) (%s).\n", name, len(a.store.Macros(name)), access)
+	a.done("Added synced library %s with %d macro(s) (%s).", name, len(a.store.Macros(name)), access)
 	return nil
 }

@@ -54,30 +54,47 @@ func (a *App) checkTrust(ref store.Ref, content string) error {
 	if status == trustChanged {
 		label = "changed since you last trusted it"
 	}
-	fmt.Fprintf(a.Stderr, "%s is %s.\n", ref.ID(), label)
-	if log := r.FileLog(rel); log != "" && a.gitOK() {
-		fmt.Fprintf(a.Stderr, "Last commit: %s\n", log)
+	log := ""
+	if a.gitOK() {
+		log = r.FileLog(rel)
 	}
-	fmt.Fprintln(a.Stderr)
 	prev := a.store.State.Trust[ref.ID()]
 	diff := ""
 	if status == trustChanged && a.gitOK() && r.CommitExists(prev.Commit) {
 		diff = r.Diff(prev.Commit, rel)
 	}
-	if diff != "" {
-		fmt.Fprint(a.Stderr, diff)
-	} else {
-		for i, l := range strings.Split(strings.TrimRight(content, "\n"), "\n") {
-			fmt.Fprintf(a.Stderr, "%4d  %s\n", i+1, l)
+	if u := a.errUI(); u.on {
+		// A warning panel, so a shared macro never runs unnoticed.
+		title := u.icon(u.icons.warn, colWarn) + u.accent(ref.ID()) + u.fg(colWarn, " is "+label)
+		if log != "" {
+			title += "\n" + u.faint("Last commit: "+log)
 		}
+		body := u.code(content)
+		if diff != "" {
+			body = u.diff(diff)
+		}
+		fmt.Fprintln(a.Stderr, u.panel(title, body, colWarn))
+	} else {
+		fmt.Fprintf(a.Stderr, "%s is %s.\n", ref.ID(), label)
+		if log != "" {
+			fmt.Fprintf(a.Stderr, "Last commit: %s\n", log)
+		}
+		fmt.Fprintln(a.Stderr)
+		if diff != "" {
+			fmt.Fprint(a.Stderr, diff)
+		} else {
+			for i, l := range strings.Split(strings.TrimRight(content, "\n"), "\n") {
+				fmt.Fprintf(a.Stderr, "%4d  %s\n", i+1, l)
+			}
+		}
+		fmt.Fprintln(a.Stderr)
 	}
-	fmt.Fprintln(a.Stderr)
 	ok, err := a.confirm("Run it and trust this version?", false)
 	if err != nil {
 		return err
 	}
 	if !ok {
-		fmt.Fprintln(a.Stderr, "Not run.")
+		a.nothing("Not run.")
 		return errCancelled
 	}
 	return a.trust(ref, content)
@@ -123,6 +140,6 @@ func (a *App) cmdTrust(args []string) error {
 	if err := a.trust(ref, content); err != nil {
 		return err
 	}
-	fmt.Fprintf(a.Stderr, "Trusted the current version of %s.\n", ref.ID())
+	a.done("Trusted the current version of %s.", a.errUI().bold(ref.ID()))
 	return nil
 }

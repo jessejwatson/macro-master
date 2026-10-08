@@ -106,7 +106,7 @@ func (a *App) moveMacro(from, to store.Ref) error {
 		return err
 	}
 	a.keepTrust([]moved{m})
-	fmt.Fprintf(a.Stderr, "Moved %s to %s.\n", from.ID(), to.ID())
+	a.done("Moved %s to %s.", from.ID(), to.ID())
 	return nil
 }
 
@@ -198,7 +198,7 @@ func (a *App) moveFolder(src, dst string) error {
 		return err
 	}
 	a.keepTrust(items)
-	fmt.Fprintf(a.Stderr, "Moved folder %s/ to %s/ (%d macro(s)).\n", f.ID(), to.ID(), len(items))
+	a.done("Moved folder %s/ to %s/ (%d macro(s)).", f.ID(), to.ID(), len(items))
 	return nil
 }
 
