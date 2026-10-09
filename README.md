@@ -4,7 +4,9 @@ Save and run macro commands from the terminal. Copy a command, run
 `mm add <name>`, and run it later with `mm <name>`, or just `mm` for a picker.
 Macros can be organised in folders (`mm web/deploy`), and libraries can be
 plain folders or git repos that sync automatically, so a team can share
-macros. See `macro-master-plan.md` for the full design.
+macros. Long-running macros can run detached (`mm -d <name>`) and be
+reattached later with `mm attach`, to watch or type into them. `mm config`
+opens a settings panel. See `macro-master-plan.md` for the full design.
 
 ## Build and test
 
@@ -14,10 +16,13 @@ make build                 # bin/mm
 make install               # copies bin/mm to ~/.local/bin (PREFIX=... to change)
 ```
 
-Requires Go and git; the only Go dependency is [lipgloss](https://github.com/charmbracelet/lipgloss)
-for colours, panels and trees. `fzf` gives the picker fuzzy search and
-a preview; without it `mm` falls back to a numbered menu. The Homebrew formula
-installs `fzf` automatically.
+Requires Go and git, on macOS or Linux. Go dependencies are
+[lipgloss](https://github.com/charmbracelet/lipgloss) for colours, panels and
+trees, [Bubble Tea](https://github.com/charmbracelet/bubbletea) and
+[Bubbles](https://github.com/charmbracelet/bubbles) for the settings panel,
+and [pty](https://github.com/creack/pty) for detached jobs. `fzf` gives the
+picker fuzzy search and a preview; without it `mm` falls back to a numbered
+menu. The Homebrew formula installs `fzf` automatically.
 
 ## Try it without touching your real setup
 

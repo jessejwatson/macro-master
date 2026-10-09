@@ -21,6 +21,14 @@ func (a *App) cmdRun(addr string, args []string) error {
 	return a.runMacro(ref, args)
 }
 
+func (a *App) cmdRunDetached(addr string, args []string) error {
+	ref, err := a.resolve(addr)
+	if err != nil {
+		return err
+	}
+	return a.runDetached(ref, args)
+}
+
 func (a *App) cmdPrint(args []string) error {
 	if len(args) == 0 {
 		return errors.New("usage: mm print <name> [placeholder=value...]")

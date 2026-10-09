@@ -180,3 +180,28 @@ func TestRemoveLibraryPrunes(t *testing.T) {
 		t.Error("invalid library name accepted")
 	}
 }
+
+func TestJobsConfig(t *testing.T) {
+	var c JobsConfig
+	if c.NotifyMode() != "desktop" || c.KeepDuration() != 7*24*time.Hour || c.KeepCount() != 50 {
+		t.Errorf("defaults: %s %s %d", c.NotifyMode(), c.KeepDuration(), c.KeepCount())
+	}
+	zero := 0
+	c = JobsConfig{Notify: "bell", KeepFor: "1.5d", KeepMax: &zero}
+	if c.NotifyMode() != "bell" || c.KeepDuration() != 36*time.Hour || c.KeepCount() != 0 {
+		t.Errorf("set: %s %s %d", c.NotifyMode(), c.KeepDuration(), c.KeepCount())
+	}
+	for in, want := range map[string]time.Duration{"12h": 12 * time.Hour, "0": 0, "junk": 7 * 24 * time.Hour, "-1h": 7 * 24 * time.Hour} {
+		if got := (JobsConfig{KeepFor: in}).KeepDuration(); got != want {
+			t.Errorf("KeepFor %q = %s, want %s", in, got, want)
+		}
+	}
+	if (JobsConfig{Notify: "loud"}).NotifyMode() != "desktop" {
+		t.Error("unknown notify mode not defaulted")
+	}
+
+	s := open(t)
+	if b, _ := os.ReadFile(filepath.Join(s.Home, "config.json")); strings.Contains(string(b), "jobs") {
+		t.Errorf("empty jobs config written: %s", b)
+	}
+}

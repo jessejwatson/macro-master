@@ -20,8 +20,8 @@ func (a *App) resolve(addr string) (store.Ref, error) {
 		return matches[0], nil
 	case len(matches) > 1:
 		if a.Interactive {
-			ref, _, err := a.pick(matches, false)
-			return ref, err
+			it, _, err := a.pick(matches, nil, false)
+			return it.ref, err
 		}
 		ids := make([]string, len(matches))
 		for i, m := range matches {
@@ -47,8 +47,8 @@ func (a *App) resolve(addr string) (store.Ref, error) {
 	if !ok {
 		return store.Ref{}, errCancelled
 	}
-	ref, _, err := a.pick(a.store.AllMacros(), false)
-	return ref, err
+	it, _, err := a.pick(a.store.AllMacros(), nil, false)
+	return it.ref, err
 }
 
 // oneArg checks a command got exactly one positional argument.

@@ -55,6 +55,7 @@ Usage:
   mm                            Open the picker and run the chosen macro
   mm <name> [args...]           Run a macro; extra args become $1, $2, ...
   mm run <name> [args...]       Same, for when a name clashes with a command
+  mm -d <name> [args...]        Run a macro detached, in the background
 
 Saving and changing macros:
   mm add <name>                 Save the clipboard as a macro, after a preview
@@ -72,6 +73,18 @@ Looking at macros:
   mm show <name>                Print a macro with its details
   mm print <name> [k=v...]      Print the filled-in command, for eval or pipes
 
+Detached jobs:
+  mm -d <name> [args...]        Start a job; also mm run -d, or --detach
+  mm jobs [clear]               List jobs, or delete the finished ones
+  mm attach [job]               Watch or type into a job; with no job, the
+                                only running one. A job is its number or
+                                macro name. Finished jobs show their output
+  mm kill [job]                 Stop a job (TERM, then KILL after 3s)
+  In mm attach the bottom row shows the keys. Watching: d detaches, ctrl+c
+  interrupts the job (again to kill), i starts typing. Typing: keys go to
+  the job until ctrl-\. In the picker, ctrl-d runs a macro detached and
+  running jobs are listed first; enter attaches.
+
 Libraries:
   mm lib ls                     List libraries with access and sync status
   mm lib add <name>             Create a local library
@@ -86,6 +99,11 @@ Sharing:
   mm sync [lib]                 Pull and push now, showing what happens
   mm trust <name>               Trust a shared macro's current version
   mm auth <host> [--remove]     Store an API token used to check permissions
+
+Settings:
+  mm config                     Change settings in a panel; e opens the file
+  mm config edit                Edit config.json in $EDITOR, checked on save
+  mm config path                Print where config.json is
 
 Shell:
   mm init zsh|bash|fish         Print the shell hook for "# mode: source"
@@ -137,7 +155,13 @@ Looks:
   NO_COLOR=1 get plain text. MM_ICONS=nerd uses Nerd Font icons. The picker
   previews macros with bat when it's installed.
 
+Job settings (in mm config):
+  Notify when done: desktop, a notification when a job ends and nobody's
+  attached; bell, a bell in attached terminals; both; or off. Finished
+  jobs are kept for 7d and at most 50 of them, unless you change it.
+
 Files:
   ~/.config/mm ($XDG_CONFIG_HOME/mm, or $MM_HOME if set) holds config.json,
-  state.json, sync.log, conflicts/ and libraries/<library>/<name>.sh.
+  state.json, sync.log, conflicts/, jobs/<id>/ (each job's output.log)
+  and libraries/<library>/<name>.sh.
 `

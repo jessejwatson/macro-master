@@ -12,6 +12,10 @@ import (
 )
 
 func TestMain(m *testing.M) {
+	// Job tests re-run this binary as mm itself, for helpers and attach.
+	if os.Getenv("MM_TEST_MAIN") == "1" {
+		os.Exit(NewApp("test").Run(os.Args[1:]))
+	}
 	// Keep the user's git config (signing, hooks, identity) out of tests.
 	os.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
 	os.Setenv("GIT_CONFIG_NOSYSTEM", "1")

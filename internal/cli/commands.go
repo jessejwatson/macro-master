@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path"
 	"path/filepath"
 	"strconv"
@@ -171,14 +170,7 @@ func (a *App) editMacro(ref store.Ref) error {
 		return errors.Join(werr, cerr)
 	}
 
-	editor := a.Getenv("EDITOR")
-	if editor == "" {
-		editor = "vi"
-	}
-	// Through sh so EDITOR can carry arguments, e.g. "code -w".
-	cmd := exec.Command("sh", "-c", editor+` "$1"`, "mm-edit", tmp.Name())
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = a.Stdin, a.Stdout, a.Stderr
-	if err := cmd.Run(); err != nil {
+	if err := a.runEditor(tmp.Name()); err != nil {
 		return fmt.Errorf("the editor exited with an error (%v), so nothing was saved", err)
 	}
 	edited, err := os.ReadFile(tmp.Name())

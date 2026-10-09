@@ -11,6 +11,7 @@ import (
 
 	"macro-master/internal/clipboard"
 	"macro-master/internal/hosts"
+	"macro-master/internal/jobs"
 	"macro-master/internal/store"
 )
 
@@ -42,6 +43,9 @@ type App struct {
 	// Spawn starts a detached background mm with args. Nil uses the real
 	// binary; tests replace it.
 	Spawn func(args []string) error
+	// StartJob starts the helper for the detached job in dir, with extra
+	// environment. Nil uses the real binary; tests replace it.
+	StartJob func(dir string, env ...string) error
 	// ReadSecret reads a token without echo. Nil uses stty.
 	ReadSecret func(prompt string) (string, error)
 	Hosts      *hosts.Client
@@ -139,6 +143,12 @@ func (a *App) run(args []string) error {
 		}
 		return nil
 	}
+	if len(args) > 0 && args[0] == "__job" {
+		if len(args) != 2 {
+			return errors.New("usage: mm __job <dir>")
+		}
+		return jobs.Helper(args[1])
+	}
 	if len(args) > 0 && args[0] == "__preview" {
 		return a.cmdPreview(args[1:])
 	}
@@ -181,10 +191,30 @@ func (a *App) run(args []string) error {
 	case "lib":
 		return a.cmdLib(rest)
 	case "run":
+		detach := len(rest) > 0 && isDetachFlag(rest[0])
+		if detach {
+			rest = rest[1:]
+		}
 		if len(rest) == 0 {
 			return errors.New("mm run needs a macro name")
 		}
+		if detach {
+			return a.cmdRunDetached(rest[0], rest[1:])
+		}
 		return a.cmdRun(rest[0], rest[1:])
+	case "-d", "--detach":
+		if len(rest) == 0 {
+			return fmt.Errorf("%s needs a macro name: mm %s <name>", cmd, cmd)
+		}
+		return a.cmdRunDetached(rest[0], rest[1:])
+	case "jobs":
+		return a.cmdJobs(rest)
+	case "attach":
+		return a.cmdAttach(rest)
+	case "kill":
+		return a.cmdKill(rest)
+	case "config":
+		return a.cmdConfig(rest)
 	case "sync":
 		return a.cmdSync(rest)
 	case "auth":
@@ -197,6 +227,8 @@ func (a *App) run(args []string) error {
 	}
 	return a.cmdRun(cmd, rest)
 }
+
+func isDetachFlag(s string) bool { return s == "-d" || s == "--detach" }
 
 func (a *App) homeDir() (string, error) {
 	if a.Home != "" {
