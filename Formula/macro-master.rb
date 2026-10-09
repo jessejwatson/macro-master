@@ -1,8 +1,8 @@
 class MacroMaster < Formula
   desc "Save and run macro commands, with git-synced shared libraries"
   homepage "https://github.com/jessejwatson/macro-master"
-  url "https://github.com/jessejwatson/macro-master/archive/refs/tags/v0.1.3.tar.gz"
-  sha256 "2d2168b4f99e3d57e41db01c681133e30076d50a551727c0345836127fa69f91"
+  url "https://github.com/jessejwatson/macro-master/archive/refs/tags/v0.1.4.tar.gz"
+  sha256 "faf368ca94bb575cf87d6b76ef8294424a177d325d177839483b4d3da56b9b72"
   license "MIT"
   head "https://github.com/jessejwatson/macro-master.git", branch: "main"
 
