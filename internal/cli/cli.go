@@ -191,22 +191,17 @@ func (a *App) run(args []string) error {
 	case "lib":
 		return a.cmdLib(rest)
 	case "run":
-		detach := len(rest) > 0 && isDetachFlag(rest[0])
-		if detach {
-			rest = rest[1:]
+		detach, name, rest, err := runFlags(rest)
+		if err != nil {
+			return err
 		}
 		if len(rest) == 0 {
 			return errors.New("mm run needs a macro name")
 		}
 		if detach {
-			return a.cmdRunDetached(rest[0], rest[1:])
+			return a.cmdRunDetached(rest[0], rest[1:], name)
 		}
 		return a.cmdRun(rest[0], rest[1:])
-	case "-d", "--detach":
-		if len(rest) == 0 {
-			return fmt.Errorf("%s needs a macro name: mm %s <name>", cmd, cmd)
-		}
-		return a.cmdRunDetached(rest[0], rest[1:])
 	case "jobs":
 		return a.cmdJobs(rest)
 	case "attach":
@@ -222,13 +217,46 @@ func (a *App) run(args []string) error {
 	case "trust":
 		return a.cmdTrust(rest)
 	}
+	if detach, name, rest, err := runFlags(args); err != nil || detach {
+		if err != nil {
+			return err
+		}
+		if len(rest) == 0 {
+			return fmt.Errorf("%s needs a macro name: mm -d [-n <job name>] <macro>", cmd)
+		}
+		return a.cmdRunDetached(rest[0], rest[1:], name)
+	}
 	if strings.HasPrefix(cmd, "-") {
 		return fmt.Errorf("unknown option %s; run mm help for usage", cmd)
 	}
 	return a.cmdRun(cmd, rest)
 }
 
-func isDetachFlag(s string) bool { return s == "-d" || s == "--detach" }
+// runFlags reads the options before a macro name: -d/--detach, and
+// -n/--name <job name>, which also detaches. Parsing stops at the first
+// argument that isn't one, so the macro's own arguments pass through.
+func runFlags(args []string) (detach bool, name string, rest []string, err error) {
+	for len(args) > 0 {
+		arg := args[0]
+		switch {
+		case arg == "-d" || arg == "--detach":
+			detach, args = true, args[1:]
+		case arg == "-n" || arg == "--name":
+			if len(args) < 2 || args[1] == "" {
+				return false, "", nil, fmt.Errorf("%s needs a job name: mm -d %s <job name> <macro>", arg, arg)
+			}
+			detach, name, args = true, args[1], args[2:]
+		case strings.HasPrefix(arg, "--name="):
+			detach, name, args = true, strings.TrimPrefix(arg, "--name="), args[1:]
+			if name == "" {
+				return false, "", nil, errors.New("--name= needs a job name: mm -d --name=<job name> <macro>")
+			}
+		default:
+			return detach, name, args, nil
+		}
+	}
+	return detach, name, nil, nil
+}
 
 func (a *App) homeDir() (string, error) {
 	if a.Home != "" {

@@ -2,6 +2,8 @@ package cli
 
 import (
 	"bytes"
+	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"charm.land/lipgloss/v2"
 	"github.com/creack/pty"
 
 	"macro-master/internal/jobs"
@@ -88,7 +91,7 @@ func TestDetachedRunListAndFinishedAttach(t *testing.T) {
 		t.Error("detached run not recorded")
 	}
 
-	if code := ta.run(nil, "jobs"); code != 0 || !regexp.MustCompile(`1\s+✗ exit 4\s+personal/greet`).MatchString(ta.out.String()) {
+	if code := ta.run(nil, "jobs"); code != 0 || !regexp.MustCompile(`1\s+-\s+✗ exit 4\s+personal/greet`).MatchString(ta.out.String()) {
 		t.Errorf("jobs: %d %q", code, ta.out)
 	}
 	// Attaching to a finished job shows its output and returns its status.
@@ -275,8 +278,15 @@ func TestAttachWatchTypeDetachAndStop(t *testing.T) {
 	if code := p.exit(); code != 0 {
 		t.Errorf("detach exit = %d", code)
 	}
-	if s := p.screen(); !strings.Contains(s, "Detached from job 1") || !strings.Contains(s, "\x1b[r") {
+	s := p.screen()
+	if !strings.Contains(s, "Detached from job 1") || !strings.Contains(s, "\x1b[r") {
 		t.Errorf("detach didn't restore the terminal:\n%q", s)
+	}
+	// The job's output was drawn on the alternate screen, which detaching
+	// leaves, so it's gone from the terminal.
+	in, out := strings.Index(s, "\x1b[?1049h"), strings.LastIndex(s, "\x1b[?1049l")
+	if in < 0 || out < 0 || !(in < strings.Index(s, "hello bob") && strings.Index(s, "hello bob") < out && out < strings.Index(s, "Detached")) {
+		t.Errorf("output not kept to the alternate screen:\n%q", s)
 	}
 	if strings.Contains(string(readLog(t, ta.job(t, "1"))), "xyz") {
 		t.Error("keys typed while watching reached the job")
@@ -312,6 +322,92 @@ func TestAttachCtrlCTwiceKills(t *testing.T) {
 	}
 }
 
+func TestJobNames(t *testing.T) {
+	ta := newJobApp(t)
+	ta.save(t, "personal/long", "echo up\nsleep 30\n")
+
+	if code := ta.run(nil, "-d", "-n", "web", "long"); code != 0 {
+		t.Fatalf("-d -n: %s", ta.err)
+	}
+	if !strings.Contains(ta.err.String(), "Started job 1 (web)") || !strings.Contains(ta.err.String(), "mm attach web") {
+		t.Errorf("start message = %q", ta.err)
+	}
+	// -n alone detaches too; names must be free and well formed.
+	for args, want := range map[string]string{
+		"-n web long":  "job 1 is already called web",
+		"-n 42 long":   "can't be just digits",
+		"-n a/b long":  "can only use letters",
+		"--name= long": "--name= needs a job name",
+		"-n  long":     "-n needs a job name",
+		"-n " + strings.Repeat("x", 33) + " long": "1 to 32 characters",
+		"-d -n":           "-n needs a job name",
+		"run -n web long": "already called web",
+	} {
+		if code := ta.run(nil, strings.Split(args, " ")...); code == 0 || !strings.Contains(ta.err.String(), want) {
+			t.Errorf("%s: exit %d, err %q, want %q", args, code, ta.err, want)
+		}
+	}
+	if code := ta.run(nil, "--name=db", "long"); code != 0 {
+		t.Fatalf("--name=: %s", ta.err)
+	}
+	if ta.job(t, "2").JobName != "db" {
+		t.Error("--name= not saved")
+	}
+
+	// Rename in mm attach with n, then find the job by its new name.
+	p := startPty(t, ta.Home, "attach", "web")
+	p.waitFor("WATCHING")
+	p.send("n")
+	p.waitFor("job name:")
+	p.send("\x15api\r")
+	p.waitFor("named api")
+	p.send("n")
+	p.send("\x15db\r") // taken by job 2
+	p.waitFor("not renamed: job 2 is already called db")
+	p.send("d")
+	if code := p.exit(); code != 0 {
+		t.Fatalf("attach exit %d", code)
+	}
+	if !strings.Contains(p.screen(), "mm attach api to return") {
+		t.Errorf("detach hint doesn't use the name:\n%q", p.screen())
+	}
+	if m := ta.job(t, "1"); m.JobName != "api" {
+		t.Errorf("name = %q", m.JobName)
+	}
+	if code := ta.run(nil, "kill", "api"); code != 0 || !strings.Contains(ta.err.String(), "Stopped job 1 (api)") {
+		t.Errorf("kill by name: %q", ta.err)
+	}
+	// The name survives the helper recording the job's end.
+	if m := ta.job(t, "1"); m.JobName != "api" {
+		t.Errorf("name after end = %q", m.JobName)
+	}
+	ta.run(nil, "jobs")
+	if !regexp.MustCompile(`(?m)^1\s+api\s+✗ terminated\s+personal/long`).MatchString(ta.out.String()) {
+		t.Errorf("jobs:\n%s", ta.out)
+	}
+}
+
+func TestJobsTableLinesUp(t *testing.T) {
+	ta := newJobApp(t)
+	ta.save(t, "personal/ok", "true\n")
+	ta.save(t, "personal/bad", "exit 255\n")
+	ta.run(nil, "-d", "ok")
+	ta.waitEnd(t, "1")
+	ta.run(nil, "-d", "-n", "x", "bad")
+	ta.waitEnd(t, "2")
+	ta.StyleOut = true
+	ta.run(nil, "jobs")
+	lines := strings.Split(strings.TrimRight(plain(ta.out.String()), "\n"), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("jobs:\n%s", ta.out)
+	}
+	col := func(l, s string) int { return lipgloss.Width(l[:strings.Index(l, s)]) }
+	if col(lines[0], "MACRO") != col(lines[1], "personal/") || col(lines[1], "personal/") != col(lines[2], "personal/") ||
+		col(lines[0], "STATUS") != col(lines[2], "✓") {
+		t.Errorf("columns don't line up:\n%s", strings.Join(lines, "\n"))
+	}
+}
+
 func readLog(t *testing.T, m *jobs.Meta) []byte {
 	b, err := os.ReadFile(m.LogPath())
 	if err != nil {
@@ -335,24 +431,16 @@ func TestPreviewJob(t *testing.T) {
 }
 
 func TestScreenSequences(t *testing.T) {
-	cases := []struct {
-		in      string
-		touched bool
-		alt     int
-	}{
-		{"plain text\r\n", false, 0},
-		{"\x1b[31mred\x1b[0m", false, 0},
-		{"\x1b[2J\x1b[H", true, 0},
-		{"\x1b[1;20r", true, 0},
-		{"\x1b[?1049hfull screen", true, 1},
-		{"\x1b[?1049h...\x1b[?1049l", true, -1},
-		{"\x1bc", true, 0},
-		{"cut \x1b[3", true, 0},
-	}
-	for _, c := range cases {
-		if touched, alt := scanScreen([]byte(c.in)); touched != c.touched || alt != c.alt {
-			t.Errorf("scanScreen(%q) = %v %d", c.in, touched, alt)
+	for in, want := range map[string]bool{
+		"plain text\r\n": false, "\x1b[31mred\x1b[0m": false, "\x1b[2J\x1b[H": true,
+		"\x1b[1;20r": true, "\x1bc": true, "cut \x1b[3": true,
+	} {
+		if got := scanScreen([]byte(in)); got != want {
+			t.Errorf("scanScreen(%q) = %v", in, got)
 		}
+	}
+	if got := string(ownScreen([]byte("a\x1b[?1049hb\x1b[?1049lc\x1b[?25l"))); got != "a\x1b[H\x1b[2Jb\x1b[H\x1b[2Jc\x1b[?25l" {
+		t.Errorf("ownScreen = %q", got)
 	}
 	for in, want := range map[string]bool{
 		"done\x1b[0m": false, "x\x1b": true, "x\x1b[1;3": true,
@@ -361,5 +449,41 @@ func TestScreenSequences(t *testing.T) {
 		if got := endsMidEscape([]byte(in)); got != want {
 			t.Errorf("endsMidEscape(%q) = %v", in, got)
 		}
+	}
+}
+
+func TestRenameReportsAnOlderHelper(t *testing.T) {
+	ta := newJobApp(t)
+	ta.run(nil, "jobs") // open the store
+	m, err := jobs.Create(filepath.Join(ta.Home, "jobs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.HelperPID, m.Macro = os.Getpid(), "personal/old"
+	m.Save()
+	// A helper from before names existed: it reads requests and ignores them.
+	ln, err := net.Listen("unix", m.SocketPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go io.Copy(io.Discard, c)
+		}
+	}()
+	conn, err := jobs.Dial(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	at := &attachment{app: ta.App, job: m, conn: conn}
+	at.saveName("web")
+	if !strings.Contains(at.note, "started by an older mm") || at.job.JobName != "" {
+		t.Errorf("note = %q, name = %q", at.note, at.job.JobName)
 	}
 }

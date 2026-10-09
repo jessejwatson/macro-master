@@ -53,7 +53,7 @@ func (it pickItem) label(u ui) string {
 			dir, name := path.Split(id)
 			id = u.faint(dir) + u.bold(name)
 		}
-		return u.fg(colCmd, "●") + " " + id + "  " + u.faint(fmt.Sprintf("job %s · running %s", it.job.ID, it.job.Duration()))
+		return u.fg(colCmd, "●") + " " + id + "  " + u.faint(fmt.Sprintf("%s · running %s", it.job.Title(), it.job.Duration()))
 	}
 	star, id := " ", it.ref.ID()
 	if it.fav {
@@ -102,7 +102,7 @@ func (a *App) cmdPick() error {
 	case actEdit:
 		return a.editMacro(it.ref)
 	case actDetach:
-		return a.runDetached(it.ref, nil)
+		return a.runDetached(it.ref, nil, "")
 	}
 	return a.runMacro(it.ref, nil)
 }
@@ -375,7 +375,7 @@ func (a *App) previewJob(id string, styled bool) error {
 	if !m.Running() {
 		status = m.Summary()
 	}
-	fmt.Fprintf(a.Stdout, "%s %s\n%s\n\n", u.accent("job "+m.ID), m.Macro, u.faint(status+" · enter to attach"))
+	fmt.Fprintf(a.Stdout, "%s %s\n%s\n\n", u.accent(m.Title()), m.Macro, u.faint(status+" · enter to attach"))
 	lines := strings.Split(strings.TrimRight(cleanOutput(tailBytes(m.LogPath(), 32<<10)), "\n"), "\n")
 	if len(lines) > 200 {
 		lines = lines[len(lines)-200:]

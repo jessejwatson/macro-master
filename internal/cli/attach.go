@@ -63,7 +63,7 @@ func (a *App) showFinished(m *jobs.Meta) error {
 			fmt.Fprintln(a.Stdout)
 		}
 	}
-	a.jobEndLine(m.ID, m.Macro, m.Summary(), m.ExitCode == 0 && m.Error == "" && m.Signal == 0 && m.State() == jobs.StateExited)
+	a.jobEndLine(m, m.Summary(), m.ExitCode == 0 && m.Error == "" && m.Signal == 0 && m.State() == jobs.StateExited, "")
 	if m.ExitCode != 0 {
 		return exitCode(m.ExitCode)
 	}
@@ -73,13 +73,19 @@ func (a *App) showFinished(m *jobs.Meta) error {
 	return nil
 }
 
-func (a *App) jobEndLine(id, macro, summary string, ok bool) {
+// jobEndLine reports how a job ended, with an optional dimmed hint.
+func (a *App) jobEndLine(m *jobs.Meta, summary string, ok bool, hint string) {
 	u := a.errUI()
 	icon, c := u.icon(u.icons.ok, colOK), colOK
 	if !ok {
 		icon, c = u.icon(u.icons.err, colBad), colBad
 	}
-	fmt.Fprintf(a.Stderr, "%s%s %s\n", icon, u.fg(c, "Job "+id+" "+summary), u.faint("("+macro+")"))
+	title := strings.ToUpper(m.Title()[:1]) + m.Title()[1:]
+	extra := "(" + m.Macro + ")"
+	if hint != "" {
+		extra += " · " + hint
+	}
+	fmt.Fprintf(a.Stderr, "%s%s %s\n", icon, u.fg(c, title+" "+summary), u.faint(extra))
 }
 
 // tailBytes reads the last n bytes of a file, from the start of a line.
@@ -103,9 +109,10 @@ func tailBytes(path string, n int64) []byte {
 	return b
 }
 
-// attachment is one mm attach session: the job's output fills the screen
-// above a one-line toolbar, and keys either control mm (watching) or go to
-// the job (typing).
+// attachment is one mm attach session. The job's output fills the
+// terminal's alternate screen above a one-line toolbar, so leaving puts
+// back what was there before. Keys control mm (watching), go to the job
+// (typing), or name the job.
 type attachment struct {
 	app  *App
 	job  *jobs.Meta
@@ -116,10 +123,11 @@ type attachment struct {
 
 	rows, cols int
 	typing     bool
-	armed      bool // ctrl+c was pressed once; again kills
+	naming     bool
+	name       []rune // the name being typed
+	armed      bool   // ctrl+c was pressed once; again kills
 	note       string
-	alt        bool // the job switched to the alternate screen
-	pending    bool // the screen needs fixing once an escape sequence ends
+	carry      []byte // an escape sequence cut off at the end of the last output
 }
 
 type attachEvent struct {
@@ -140,8 +148,7 @@ func (at *attachment) run() error {
 	defer term.Restore(fd, state)
 
 	at.measure()
-	// Push what's on screen into scrollback, then keep the bottom row.
-	at.write(strings.Repeat("\n", at.rows) + "\x1b[H")
+	at.write("\x1b[?1049h\x1b[H\x1b[2J")
 	at.fixScreen()
 	if err := at.conn.Hello(at.rows-1, at.cols); err != nil {
 		at.teardown()
@@ -195,7 +202,7 @@ func (at *attachment) run() error {
 			}
 			at.teardown()
 			term.Restore(fd, state)
-			at.app.jobEndLine(at.job.ID, at.job.Macro, at.endSummary(ev.exit), ev.exit.Code == 0)
+			at.app.jobEndLine(at.job, at.endSummary(ev.exit), ev.exit.Code == 0, "mm attach "+at.job.Handle()+" shows its output")
 			if ev.exit.Code != 0 {
 				return exitCode(ev.exit.Code)
 			}
@@ -215,7 +222,7 @@ func (at *attachment) run() error {
 				at.teardown()
 				term.Restore(fd, state)
 				u := at.app.errUI()
-				fmt.Fprintf(at.app.Stderr, "Detached from job %s %s\n", at.job.ID, u.faint("· mm attach "+at.job.ID+" to return"))
+				fmt.Fprintf(at.app.Stderr, "Detached from %s %s\n", at.job.Title(), u.faint("· mm attach "+at.job.Handle()+" to return"))
 				return nil
 			case "arm":
 				if disarm != nil {
@@ -237,18 +244,23 @@ func (at *attachment) endSummary(e *jobs.Exit) string {
 
 // showEnd reports a job that ended while the connection dropped.
 func (a *App) showEnd(m *jobs.Meta) error {
-	a.jobEndLine(m.ID, m.Macro, m.Summary(), m.ExitCode == 0 && m.Signal == 0 && m.Error == "")
+	a.jobEndLine(m, m.Summary(), m.ExitCode == 0 && m.Signal == 0 && m.Error == "", "")
 	if m.ExitCode != 0 {
 		return exitCode(m.ExitCode)
 	}
 	return nil
 }
 
-// keys handles input. Watching, d detaches, ctrl+c interrupts then kills
-// and i starts typing; typing, everything goes to the job until ctrl-\.
+// keys handles input. Watching, d detaches, ctrl+c interrupts then kills,
+// i starts typing and n names the job; typing, everything goes to the job
+// until ctrl-\.
 func (at *attachment) keys(b []byte) string {
 	result := ""
 	for len(b) > 0 {
+		if at.naming {
+			b = at.nameKeys(b)
+			continue
+		}
 		if at.typing {
 			i := bytes.IndexByte(b, keyCtrlBackslash)
 			if i < 0 {
@@ -271,6 +283,10 @@ func (at *attachment) keys(b []byte) string {
 		case 'i', 'I':
 			at.typing, at.armed, at.note = true, false, ""
 			at.drawToolbar()
+		case 'n', 'N':
+			at.naming, at.armed, at.note = true, false, ""
+			at.name = []rune(at.job.JobName)
+			at.drawToolbar()
 		case keyCtrlC:
 			if at.armed {
 				at.conn.Kill()
@@ -288,6 +304,68 @@ func (at *attachment) keys(b []byte) string {
 	return result
 }
 
+// nameKeys edits the job's name and returns the keys left over: enter
+// saves, esc or ctrl+c cancels, and an empty name removes it.
+func (at *attachment) nameKeys(b []byte) []byte {
+	for i, k := range b {
+		switch {
+		case k == '\r' || k == '\n':
+			at.naming = false
+			at.saveName(string(at.name))
+			at.drawToolbar()
+			return b[i+1:]
+		case k == keyCtrlC || (k == 0x1b && i == len(b)-1):
+			at.naming = false
+			at.drawToolbar()
+			return b[i+1:]
+		case k == 0x1b:
+			return nil // an arrow or other special key: ignored
+		case k == 0x7f || k == 0x08:
+			if len(at.name) > 0 {
+				at.name = at.name[:len(at.name)-1]
+			}
+		case k == 0x15: // ctrl+u
+			at.name = nil
+		case k >= 0x20 && len(at.name) < 32:
+			at.name = append(at.name, rune(k))
+		}
+	}
+	at.drawToolbar()
+	return nil
+}
+
+func (at *attachment) saveName(name string) {
+	if name == at.job.JobName {
+		return
+	}
+	if name != "" {
+		if err := jobs.CheckName(at.app.store.JobsDir(), name, at.job.ID); err != nil {
+			at.note = "not renamed: " + err.Error()
+			return
+		}
+	}
+	if err := at.conn.SetName(name); err != nil {
+		at.note = "not renamed: " + err.Error()
+		return
+	}
+	// Only say so once the helper has saved it: one from before names
+	// existed ignores the request.
+	for deadline := time.Now().Add(time.Second); ; time.Sleep(20 * time.Millisecond) {
+		if m, err := at.job.Reload(); err == nil && m.JobName == name {
+			break
+		}
+		if time.Now().After(deadline) {
+			at.note = "not renamed: this job was started by an older mm; jobs started from now on can be named"
+			return
+		}
+	}
+	at.job.JobName = name
+	at.note = "named " + name
+	if name == "" {
+		at.note = "name removed"
+	}
+}
+
 func (at *attachment) measure() {
 	w, h, err := term.GetSize(at.out.Fd())
 	if err != nil || w <= 0 || h < 3 {
@@ -299,28 +377,46 @@ func (at *attachment) measure() {
 func (at *attachment) write(s string) { io.WriteString(at.out, s) }
 
 // output shows the job's output, repairing the scroll region and toolbar
-// when the job may have reset or cleared them.
+// when the job may have reset or cleared them. An escape sequence cut off
+// at the end is held back until the rest arrives, so mm's own sequences
+// never land in the middle of one.
 func (at *attachment) output(b []byte) {
+	b = append(at.carry, b...)
+	at.carry = nil
+	if endsMidEscape(b) {
+		if i := bytes.LastIndexByte(b, 0x1b); len(b)-i < 4096 {
+			at.carry = append([]byte(nil), b[i:]...)
+			b = b[:i]
+		}
+	}
+	b = ownScreen(b)
 	at.out.Write(b)
-	touched, alt := scanScreen(b)
-	if alt != 0 {
-		at.alt = alt > 0
-	}
-	if touched {
-		at.pending = true
-	}
-	if at.pending && !endsMidEscape(b) {
-		at.pending = false
+	if scanScreen(b) {
 		at.fixScreen()
 	}
 }
 
-// scanScreen looks for sequences that may reset the scroll region or clear
-// the toolbar row: a full reset, a scroll region, erasing the display or
-// switching screens. alt is 1 or -1 for the last switch to or from the
-// alternate screen, otherwise 0.
-func scanScreen(b []byte) (touched bool, alt int) {
-	touched = bytes.Contains(b, []byte("\x1bc"))
+// ownScreen keeps a full-screen job on mm's alternate screen: switching
+// screens would otherwise take the job's output, or the toolbar, away.
+// Entering or leaving clears the screen instead.
+func ownScreen(b []byte) []byte {
+	if !bytes.Contains(b, []byte("\x1b[?")) {
+		return b
+	}
+	for _, mode := range []string{"1049", "1047", "47"} {
+		for _, end := range []string{"h", "l"} {
+			b = bytes.ReplaceAll(b, []byte("\x1b[?"+mode+end), []byte("\x1b[H\x1b[2J"))
+		}
+	}
+	return b
+}
+
+// scanScreen is true when b may reset the scroll region or clear the
+// toolbar row: a full reset, a scroll region or erasing the display.
+func scanScreen(b []byte) bool {
+	if bytes.Contains(b, []byte("\x1bc")) {
+		return true
+	}
 	for i := 0; i+1 < len(b); i++ {
 		if b[i] != 0x1b || b[i+1] != '[' {
 			continue
@@ -330,21 +426,13 @@ func scanScreen(b []byte) (touched bool, alt int) {
 			j++
 		}
 		if j >= len(b) {
-			return true, alt
+			return true
 		}
-		switch params := string(b[i+2 : j]); b[j] {
-		case 'r', 'J':
-			touched = true
-		case 'h', 'l':
-			if params == "?1049" || params == "?1047" || params == "?47" {
-				touched, alt = true, 1
-				if b[j] == 'l' {
-					alt = -1
-				}
-			}
+		if b[j] == 'r' || b[j] == 'J' {
+			return true
 		}
 	}
-	return touched, alt
+	return false
 }
 
 // endsMidEscape is true when b stops partway through an escape sequence,
@@ -386,20 +474,25 @@ func (at *attachment) drawToolbar() {
 func (at *attachment) toolbar() string {
 	u := at.u
 	badge := lipgloss.NewStyle().Bold(true).Reverse(true)
-	mode, hints := " WATCHING ", "d detach · ctrl+c stop job · i type"
+	mode, hints := " WATCHING ", "d detach · ctrl+c stop job · i type · n name"
 	modeStyle := badge.Foreground(colAccent)
-	if at.typing {
+	switch {
+	case at.naming:
+		mode = " NAME "
+		modeStyle = badge.Foreground(colWarn)
+		hints = "job name: " + u.bold(string(at.name)) + "▏  " + u.faint("enter save · esc cancel · empty removes it")
+	case at.typing:
 		mode, hints = " TYPING ", `keys go to the job · ctrl-\ back to watching`
 		modeStyle = badge.Foreground(colOK)
 	}
-	if at.note != "" {
+	if at.note != "" && !at.naming {
 		hints = at.note
 	}
 	left := u.render(modeStyle, mode) + "  " + hints
 	if !u.on {
 		left = "[" + strings.TrimSpace(mode) + "]  " + hints
 	}
-	right := "job " + at.job.ID + " · " + at.job.Macro + " "
+	right := at.job.Title() + " · " + at.job.Macro + " "
 	gap := at.cols - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 2 {
 		return ansi.Truncate(left, at.cols, "…")
@@ -407,17 +500,14 @@ func (at *attachment) toolbar() string {
 	return left + strings.Repeat(" ", gap) + u.faint(right)
 }
 
-// teardown gives the terminal back: full scroll region, no toolbar, and
-// modes a full-screen job may have left on turned off.
+// teardown gives the terminal back as it was: full scroll region, modes a
+// full-screen job may have left on turned off, and the main screen.
 func (at *attachment) teardown() {
 	var b strings.Builder
-	if at.alt {
-		b.WriteString("\x1b[?1049l")
-	}
 	b.WriteString("\x1b[r")
 	// Show the cursor; normal cursor keys and keypad; no bracketed paste or
 	// mouse reporting; plain attributes.
 	b.WriteString("\x1b[?25h\x1b[?1l\x1b>\x1b[?2004l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[0m")
-	fmt.Fprintf(&b, "\x1b[%d;1H\x1b[2K", at.rows)
+	b.WriteString("\x1b[?1049l")
 	at.write(b.String())
 }

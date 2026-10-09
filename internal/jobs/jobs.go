@@ -40,7 +40,8 @@ const (
 // job's helper changes it.
 type Meta struct {
 	ID      string   `json:"id"`
-	Macro   string   `json:"macro"` // library/folders/name
+	JobName string   `json:"job_name,omitempty"` // optional, set with -n or in mm attach
+	Macro   string   `json:"macro"`              // library/folders/name
 	Library string   `json:"library"`
 	Name    string   `json:"name"`
 	Path    string   `json:"path"`   // resolved interpreter
@@ -61,6 +62,54 @@ type Meta struct {
 
 	dir     string
 	modTime time.Time
+}
+
+// Handle is how to refer to the job: its name if it has one, else its
+// number.
+func (m *Meta) Handle() string {
+	if m.JobName != "" {
+		return m.JobName
+	}
+	return m.ID
+}
+
+// Title is "job 3", or "job 3 (web)" for a named job.
+func (m *Meta) Title() string {
+	if m.JobName != "" {
+		return "job " + m.ID + " (" + m.JobName + ")"
+	}
+	return "job " + m.ID
+}
+
+// CheckName reports why name can't name a job under root: it must be short
+// letters, digits, dots, dashes or underscores, not just digits (those are
+// job numbers), and not used by another running job.
+func CheckName(root, name, exceptID string) error {
+	if name == "" || len(name) > 32 {
+		return errors.New("a job name needs 1 to 32 characters")
+	}
+	digits := true
+	for _, r := range name {
+		switch {
+		case r >= '0' && r <= '9':
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r == '-', r == '_', r == '.':
+			digits = false
+		default:
+			return fmt.Errorf("a job name can only use letters, digits, - _ and ., not %q", r)
+		}
+	}
+	if digits {
+		return errors.New("a job name can't be just digits; those are job numbers")
+	}
+	if name[0] == '-' || name[0] == '.' {
+		return errors.New("a job name can't start with - or .")
+	}
+	for _, m := range List(root) {
+		if m.ID != exceptID && m.JobName == name && m.Running() {
+			return fmt.Errorf("job %s is already called %s", m.ID, name)
+		}
+	}
+	return nil
 }
 
 // JobDir is the folder holding the job's files.

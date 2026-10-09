@@ -89,10 +89,13 @@ func Helper(dir string) error {
 	case <-time.After(500 * time.Millisecond):
 	}
 
+	h.mu.Lock() // a client may be renaming the job
 	now := time.Now().UTC()
 	m.Ended = &now
 	m.ExitCode, m.Signal = exitInfo(waitErr)
-	if err := m.Save(); err != nil {
+	err = m.Save()
+	h.mu.Unlock()
+	if err != nil {
 		return err
 	}
 	if m.Script != "" {
@@ -296,6 +299,11 @@ func (h *hub) handle(conn net.Conn) {
 			}
 		case frameStop:
 			h.stop(len(p) == 1 && p[0] == 'K')
+		case frameName:
+			h.mu.Lock()
+			h.meta.JobName = string(p)
+			h.meta.Save()
+			h.mu.Unlock()
 		}
 	}
 }

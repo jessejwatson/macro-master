@@ -11,6 +11,8 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"charm.land/lipgloss/v2"
+	"charm.land/lipgloss/v2/table"
 	"github.com/charmbracelet/x/term"
 
 	"macro-master/internal/jobs"
@@ -20,7 +22,7 @@ import (
 
 // runDetached starts the macro as a background job and returns once its
 // helper is up.
-func (a *App) runDetached(ref store.Ref, args []string) error {
+func (a *App) runDetached(ref store.Ref, args []string, name string) error {
 	m, rest, _, err := a.prepare(ref, args)
 	if err != nil {
 		return err
@@ -49,7 +51,7 @@ func (a *App) runDetached(ref store.Ref, args []string) error {
 	}
 	cwd, _ := os.Getwd()
 	rows, cols := jobTermSize()
-	job.Macro, job.Library, job.Name = ref.ID(), ref.Library, ref.Name
+	job.Macro, job.Library, job.Name, job.JobName = ref.ID(), ref.Library, ref.Name, name
 	job.Path, job.Script, job.Dir = path, script, cwd
 	job.Argv = append(append(append([]string{}, interp...), script), rest...)
 	job.Rows, job.Cols = rows, cols
@@ -74,8 +76,8 @@ func (a *App) runDetached(ref store.Ref, args []string) error {
 	a.recordRun(ref)
 
 	u := a.errUI()
-	a.done("Started job %s: %s", u.bold(job.ID), ref.ID())
-	fmt.Fprintln(a.Stderr, u.faint(fmt.Sprintf("  mm attach %s to watch or type into it · mm jobs to list jobs", job.ID)))
+	a.done("Started %s: %s", u.bold(job.Title()), ref.ID())
+	fmt.Fprintln(a.Stderr, u.faint(fmt.Sprintf("  mm attach %s to watch or type into it · mm jobs to list jobs", job.Handle())))
 	return nil
 }
 
@@ -162,13 +164,52 @@ func (a *App) cmdJobs(args []string) error {
 		return nil
 	}
 	u := a.outUI()
-	w := tabwriter.NewWriter(a.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, u.faint("ID\tSTATUS\tMACRO\tSTARTED\tTOOK"))
+	headers := []string{"ID", "NAME", "STATUS", "MACRO", "STARTED", "TOOK"}
+	var rows [][]string
 	for _, m := range list {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", u.bold(m.ID), jobStatus(u, m), m.Macro,
-			u.faint(ago(m.Started)), u.faint(m.Duration().String()))
+		name := u.fg(colAccent, m.JobName)
+		if m.JobName == "" {
+			name = u.faint("-")
+		}
+		rows = append(rows, []string{u.bold(m.ID), name, jobStatus(u, m), m.Macro, u.faint(ago(m.Started)), u.faint(m.Duration().String())})
+	}
+	if u.on {
+		// lipgloss measures cells by what shows, not the colour codes in
+		// them, so styled columns line up.
+		t := table.New().
+			Border(lipgloss.HiddenBorder()).
+			BorderHeader(false).
+			Headers(headers...).
+			Rows(rows...).
+			StyleFunc(func(row, col int) lipgloss.Style {
+				s := lipgloss.NewStyle().PaddingRight(2)
+				if row == table.HeaderRow {
+					s = s.Faint(true)
+				}
+				return s
+			})
+		fmt.Fprintln(a.Stdout, trimTableEdges(t.String()))
+		return nil
+	}
+	w := tabwriter.NewWriter(a.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, strings.Join(headers, "\t"))
+	for _, r := range rows {
+		fmt.Fprintln(w, strings.Join(r, "\t"))
 	}
 	return w.Flush()
+}
+
+// trimTableEdges drops a hidden-border table's blank first and last lines
+// and its one-space left edge, so it sits flush like plain output.
+func trimTableEdges(s string) string {
+	lines := strings.Split(s, "\n")
+	if len(lines) > 2 {
+		lines = lines[1 : len(lines)-1]
+	}
+	for i, l := range lines {
+		lines[i] = strings.TrimRight(strings.TrimPrefix(l, " "), " ")
+	}
+	return strings.Join(lines, "\n")
 }
 
 // jobStatus is a job's state for listings: running, or how it ended.
@@ -191,9 +232,9 @@ func plural(n int, one, many string) string {
 	return many
 }
 
-// findJob turns an argument into a job: its number, or a macro address,
-// which picks that macro's most recent job, preferring running ones. With
-// no argument it's the only running job.
+// findJob turns an argument into a job: its number, its name, or a macro
+// address. A name or macro picks the most recent such job, preferring
+// running ones. With no argument it's the only running job.
 func (a *App) findJob(args []string, verb string) (*jobs.Meta, error) {
 	root := a.store.JobsDir()
 	list := jobs.List(root)
@@ -215,7 +256,7 @@ func (a *App) findJob(args []string, verb string) (*jobs.Meta, error) {
 		}
 		var ids []string
 		for _, m := range running {
-			ids = append(ids, m.ID+" ("+m.Macro+")")
+			ids = append(ids, m.Handle()+" ("+m.Macro+")")
 		}
 		return nil, fmt.Errorf("%d jobs are running; say which: mm %s <job>, one of %s", len(running), verb, strings.Join(ids, ", "))
 	}
@@ -223,14 +264,19 @@ func (a *App) findJob(args []string, verb string) (*jobs.Meta, error) {
 	if m, err := jobs.Get(root, arg); err == nil {
 		return m, nil
 	}
-	var match *jobs.Meta
-	for _, m := range list {
-		if m.Macro != arg && !strings.HasSuffix(m.Macro, "/"+arg) {
-			continue
+	// Newest first, so the first match wins unless a later one is running.
+	pick := func(ok func(*jobs.Meta) bool) *jobs.Meta {
+		var match *jobs.Meta
+		for _, m := range list {
+			if ok(m) && (match == nil || (m.Running() && !match.Running())) {
+				match = m
+			}
 		}
-		if match == nil || (m.Running() && !match.Running()) {
-			match = m
-		}
+		return match
+	}
+	match := pick(func(m *jobs.Meta) bool { return m.JobName == arg })
+	if match == nil {
+		match = pick(func(m *jobs.Meta) bool { return m.Macro == arg || strings.HasSuffix(m.Macro, "/"+arg) })
 	}
 	if match == nil {
 		return nil, fmt.Errorf("there is no job %q; run mm jobs to see them", arg)
@@ -245,7 +291,7 @@ func (a *App) cmdKill(args []string) error {
 		return err
 	}
 	if !m.Running() {
-		return fmt.Errorf("job %s has already ended (%s)", m.ID, m.Outcome())
+		return fmt.Errorf("%s has already ended (%s)", m.Title(), m.Outcome())
 	}
 	if c, err := jobs.Dial(m); err == nil {
 		err = c.Terminate()
@@ -259,7 +305,7 @@ func (a *App) cmdKill(args []string) error {
 	deadline := time.Now().Add(6 * time.Second)
 	for time.Now().Before(deadline) {
 		if fresh, err := m.Reload(); err == nil && !fresh.Running() {
-			a.done("Stopped job %s (%s)", m.ID, m.Macro)
+			a.done("Stopped %s: %s", m.Title(), m.Macro)
 			return nil
 		}
 		time.Sleep(50 * time.Millisecond)

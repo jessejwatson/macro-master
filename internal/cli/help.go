@@ -75,15 +75,18 @@ Looking at macros:
 
 Detached jobs:
   mm -d <name> [args...]        Start a job; also mm run -d, or --detach
+  mm -d -n <job> <name> [...]   Start a job with a name (-n alone detaches too)
   mm jobs [clear]               List jobs, or delete the finished ones
   mm attach [job]               Watch or type into a job; with no job, the
-                                only running one. A job is its number or
-                                macro name. Finished jobs show their output
+                                only running one. A job is its number, its
+                                name or its macro. Finished jobs show their
+                                output
   mm kill [job]                 Stop a job (TERM, then KILL after 3s)
   In mm attach the bottom row shows the keys. Watching: d detaches, ctrl+c
-  interrupts the job (again to kill), i starts typing. Typing: keys go to
-  the job until ctrl-\. In the picker, ctrl-d runs a macro detached and
-  running jobs are listed first; enter attaches.
+  interrupts the job (again to kill), i starts typing, n names the job.
+  Typing: keys go to the job until ctrl-\. Detaching puts your terminal
+  back as it was. In the picker, ctrl-d runs a macro detached and running
+  jobs are listed first; enter attaches.
 
 Libraries:
   mm lib ls                     List libraries with access and sync status

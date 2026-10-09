@@ -9,6 +9,7 @@ import (
 	"strings"
 	"syscall"
 
+	"macro-master/internal/jobs"
 	"macro-master/internal/macro"
 	"macro-master/internal/store"
 )
@@ -21,12 +22,17 @@ func (a *App) cmdRun(addr string, args []string) error {
 	return a.runMacro(ref, args)
 }
 
-func (a *App) cmdRunDetached(addr string, args []string) error {
+func (a *App) cmdRunDetached(addr string, args []string, name string) error {
+	if name != "" {
+		if err := jobs.CheckName(a.store.JobsDir(), name, ""); err != nil {
+			return err
+		}
+	}
 	ref, err := a.resolve(addr)
 	if err != nil {
 		return err
 	}
-	return a.runDetached(ref, args)
+	return a.runDetached(ref, args, name)
 }
 
 func (a *App) cmdPrint(args []string) error {

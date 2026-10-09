@@ -29,7 +29,7 @@ func (m *Meta) Summary() string {
 // ignored: notifications are a nicety.
 func Notify(m *Meta) {
 	title := "mm: " + m.Macro
-	body := fmt.Sprintf("Job %s %s", m.ID, m.Summary())
+	body := fmt.Sprintf("%s %s", strings.ToUpper(m.Title()[:1])+m.Title()[1:], m.Summary())
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin":

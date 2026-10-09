@@ -18,7 +18,8 @@ class MacroMaster < Formula
   def caveats
     <<~EOS
       Run `mm` to open the picker, or `mm add <name>` to save the clipboard.
-      `mm -d <name>` runs a macro detached; `mm attach` reconnects to it.
+      `mm -d <name>` runs a macro detached (`-n <job name>` names it);
+      `mm attach` reconnects to it.
       `mm config` opens the settings panel.
 
       For macros marked `# mode: source` (cd, export and the like), add the
@@ -42,12 +43,12 @@ class MacroMaster < Formula
     assert_match "jobs.notify = off", shell_output("#{bin}/mm config")
 
     # A detached job runs on its own terminal and keeps its output.
-    assert_match "Started job 1", shell_output("#{bin}/mm -d hi who=job 2>&1")
+    assert_match "Started job 1 (greet)", shell_output("#{bin}/mm -d -n greet hi who=job 2>&1")
     20.times do
       break if shell_output("#{bin}/mm jobs").include?("exit 0")
 
       sleep 0.5
     end
-    assert_match "hello job", shell_output("#{bin}/mm attach 1")
+    assert_match "hello job", shell_output("#{bin}/mm attach greet")
   end
 end

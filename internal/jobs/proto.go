@@ -17,6 +17,7 @@ const (
 	frameInput  = 'i' // bytes for the job's terminal
 	frameResize = 'z' // rows, cols as uint16s
 	frameStop   = 'k' // 'T' terminates the job, 'K' kills it
+	frameName   = 'n' // the job's new name
 
 	// Helper to client.
 	frameOutput = 'o'
@@ -103,6 +104,9 @@ func (c *Conn) Resize(rows, cols int) error {
 // still going a few seconds later. Kill sends SIGKILL straight away.
 func (c *Conn) Terminate() error { return writeFrame(c.c, frameStop, []byte{'T'}) }
 func (c *Conn) Kill() error      { return writeFrame(c.c, frameStop, []byte{'K'}) }
+
+// SetName names the job.
+func (c *Conn) SetName(name string) error { return writeFrame(c.c, frameName, []byte(name)) }
 
 // Next reads the next message from the helper: output, or the job's end.
 func (c *Conn) Next() (output []byte, exit *Exit, err error) {
