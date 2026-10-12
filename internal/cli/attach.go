@@ -324,7 +324,9 @@ func (a *App) showEnd(m *jobs.Meta) error {
 // keys handles input. Watching, d detaches, ctrl+c interrupts then kills,
 // i starts typing and n names the job; typing, everything goes to the job
 // until esc. An esc with more keys straight after it, as arrow keys and
-// alt+key send, goes to the job.
+// alt+key send, goes to the job. Watching, escape sequences are skipped
+// whole: they're special keys, or the terminal answering the job's output
+// (focus, status and version reports), and their letters aren't keys.
 func (at *attachment) keys(b []byte) string {
 	result := ""
 	for len(b) > 0 {
@@ -343,6 +345,10 @@ func (at *attachment) keys(b []byte) string {
 			at.typing, at.note = false, ""
 			at.drawToolbar()
 			return result
+		}
+		if b[0] == keyEsc {
+			b = b[escapeLen(b):]
+			continue
 		}
 		k := b[0]
 		b = b[1:]
@@ -388,7 +394,9 @@ func (at *attachment) nameKeys(b []byte) []byte {
 			at.drawToolbar()
 			return b[i+1:]
 		case k == keyEsc:
-			return nil // an arrow or other special key: ignored
+			// An arrow or other special key, or the terminal answering:
+			// skipped.
+			return b[i+escapeLen(b[i:]):]
 		case k == 0x7f || k == 0x08:
 			if len(at.name) > 0 {
 				at.name = at.name[:len(at.name)-1]
@@ -401,6 +409,37 @@ func (at *attachment) nameKeys(b []byte) []byte {
 	}
 	at.drawToolbar()
 	return nil
+}
+
+// escapeLen is the length of the escape sequence at the start of b, or
+// all of b when it's cut off: CSI (esc [), OSC, DCS and other strings
+// ended by BEL or esc \, SS3 (esc O) and two-byte escapes.
+func escapeLen(b []byte) int {
+	if len(b) < 2 {
+		return len(b)
+	}
+	switch b[1] {
+	case '[':
+		for i := 2; i < len(b); i++ {
+			if b[i] >= 0x40 && b[i] <= 0x7e {
+				return i + 1
+			}
+		}
+	case ']', 'P', '_', '^', 'X':
+		for i := 2; i < len(b); i++ {
+			if b[i] == 0x07 {
+				return i + 1
+			}
+			if b[i] == keyEsc && i+1 < len(b) && b[i+1] == '\\' {
+				return i + 2
+			}
+		}
+	case 'O':
+		return min(3, len(b))
+	default:
+		return 2
+	}
+	return len(b)
 }
 
 func (at *attachment) saveName(name string) {

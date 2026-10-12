@@ -378,6 +378,40 @@ func TestConfirmTakesOneKey(t *testing.T) {
 	}
 }
 
+func TestWatchingSkipsEscapeSequences(t *testing.T) {
+	devnull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer devnull.Close()
+	ta := newApp(t)
+	at := &attachment{app: ta.App, job: &jobs.Meta{ID: "1", Macro: "personal/x"}, out: devnull, u: ta.newUI(false), rows: 24, cols: 80}
+
+	// The terminal answering the job's output, focus events and special
+	// keys: none of their letters are keys.
+	for _, in := range []string{
+		"\x1b[0n", "\x1b[12;40R", "\x1b[?62;22c", "\x1b[I", "\x1b[O",
+		"\x1bP>|iTerm2 3.6.1\x1b\\", "\x1b]11;rgb:1e1e/1e1e/1e1e\x07", "\x1bOP", "\x1b[A",
+		"\x1b[0n\x1bP>|iTerm2\x1b\\\x1b[I",
+	} {
+		if got := at.keys([]byte(in)); got != "" || at.typing || at.naming {
+			t.Errorf("%q: result %q, typing %v, naming %v", in, got, at.typing, at.naming)
+		}
+	}
+	if got := at.keys([]byte("\x1b[0nd")); got != "detach" {
+		t.Errorf("d after a report: %q", got)
+	}
+	// Naming, a report is skipped and what follows is typed.
+	at.keys([]byte("n"))
+	at.keys([]byte("ab\x1b[Ic"))
+	if !at.naming || string(at.name) != "abc" {
+		t.Errorf("naming %v, name %q", at.naming, string(at.name))
+	}
+	if at.keys([]byte("\x1b")); at.naming {
+		t.Error("esc didn't cancel naming")
+	}
+}
+
 func TestAttachCtrlCTwiceKills(t *testing.T) {
 	ta := newJobApp(t)
 	ta.save(t, "personal/stubborn", "trap 'echo ignoring' INT\necho up\nwhile :; do sleep 0.1; done\n")
