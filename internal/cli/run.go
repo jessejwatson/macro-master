@@ -96,8 +96,8 @@ func (a *App) prepare(ref store.Ref, args []string) (macro.Macro, []string, stri
 	return m, rest, content, nil
 }
 
-// runMacro runs the macro in a child process with the terminal attached and
-// returns its exit status as an exitCode.
+// runMacro runs the macro with the terminal attached and returns its exit
+// status as an exitCode.
 func (a *App) runMacro(ref store.Ref, args []string) error {
 	m, rest, content, err := a.prepare(ref, args)
 	if err != nil {
@@ -110,6 +110,12 @@ func (a *App) runMacro(ref store.Ref, args []string) error {
 			return writeSourceFile(f, a.Getenv("MM_SHELL"), m, rest)
 		}
 		a.notef("%s is meant to change your current shell, which needs the shell hook: add eval \"$(mm init zsh)\" to ~/.zshrc (or the bash/fish equivalent). Running it normally.", ref.ID())
+	}
+
+	// In a terminal the macro runs as a job you're attached to, typing, so
+	// it can be detached or named partway through.
+	if a.Interactive && a.onTerminal() && m.Mode != "source" {
+		return a.runAttached(ref, m, rest)
 	}
 
 	// Run the saved file, or a copy when placeholders were filled or the

@@ -43,6 +43,11 @@ func newApp(t *testing.T) *testApp {
 		ta.spawned = append(ta.spawned, args)
 		return nil
 	}
+	// The real StartJob would start this test binary; newJobApp starts jobs.
+	ta.StartJob = func(string, ...string) error {
+		t.Error("a job was started; use newJobApp")
+		return errors.New("jobs can't start in this test")
+	}
 	ta.Getenv = func(k string) string {
 		if v, ok := ta.env[k]; ok {
 			return v

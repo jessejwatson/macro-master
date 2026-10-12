@@ -84,9 +84,10 @@ Detached jobs:
   mm kill [job]                 Stop a job (TERM, then KILL after 3s)
   In mm attach the bottom row shows the keys. Watching: d detaches, ctrl+c
   interrupts the job (again to kill), i starts typing, n names the job.
-  Typing: keys go to the job until ctrl-\. Detaching puts your terminal
-  back as it was. In the picker, ctrl-d runs a macro detached and running
-  jobs are listed first; enter attaches.
+  Typing: keys go to the job until esc. In a terminal, mm <name> runs the
+  macro as a job you're attached to, typing, so esc then d detaches it.
+  Detaching puts your terminal back as it was. In the picker, ctrl-d runs
+  a macro detached and running jobs are listed first; enter attaches.
 
 Libraries:
   mm lib ls                     List libraries with access and sync status

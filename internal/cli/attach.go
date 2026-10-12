@@ -16,12 +16,14 @@ import (
 	"github.com/charmbracelet/x/term"
 
 	"macro-master/internal/jobs"
+	"macro-master/internal/macro"
+	"macro-master/internal/store"
 )
 
 // Keys in mm attach.
 const (
-	keyCtrlC         = 0x03
-	keyCtrlBackslash = 0x1c
+	keyCtrlC = 0x03
+	keyEsc   = 0x1b
 )
 
 // cmdAttach connects the terminal to a job. A finished job's last output is
@@ -53,6 +55,60 @@ func (a *App) attachJob(m *jobs.Meta) error {
 	at := &attachment{app: a, job: m, conn: conn, in: os.Stdin, out: os.Stdout, u: a.newUI(a.StyleOut)}
 	return at.run()
 }
+
+// runAttached runs the filled-in macro m as a job attached to this
+// terminal, typing. Its output goes inline, into the terminal's own lines,
+// so detaching leaves it there. If it ends before you detach, the job is
+// forgotten, as if it had run there directly.
+func (a *App) runAttached(ref store.Ref, m macro.Macro, rest []string) error {
+	job, err := a.startJob(ref, m, rest, "")
+	if err != nil {
+		return err
+	}
+	conn, err := jobs.Dial(job)
+	if err != nil {
+		if fresh, rerr := job.Reload(); rerr == nil && !fresh.Running() {
+			return a.endForeground(fresh, true)
+		}
+		return fmt.Errorf("can't reach job %s: %w", job.ID, err)
+	}
+	defer conn.Close()
+	at := &attachment{app: a, job: job, conn: conn, in: os.Stdin, out: os.Stdout, u: a.newUI(a.StyleOut),
+		foreground: true, typing: true}
+	return at.run()
+}
+
+// onTerminal is true when mm's own stdin and stdout are in use, which
+// attaching reads and draws on directly.
+func (a *App) onTerminal() bool {
+	return a.Stdin == io.Reader(os.Stdin) && a.Stdout == io.Writer(os.Stdout)
+}
+
+// endForeground finishes a run that ended while attached: it prints the
+// job's output unless it's already shown, deletes the job, and exits with
+// the job's status.
+func (a *App) endForeground(m *jobs.Meta, show bool) error {
+	if b := plainScreen(tailBytes(m.LogPath(), logShown)); show && len(b) > 0 {
+		a.Stdout.Write(b)
+		if b[len(b)-1] != '\n' {
+			fmt.Fprintln(a.Stdout)
+		}
+	}
+	jobs.Remove(m)
+	switch {
+	case m.Error != "":
+		return fmt.Errorf("%s %s", m.Macro, m.Summary())
+	case m.State() == jobs.StateLost:
+		return exitCode(1)
+	case m.ExitCode != 0:
+		return exitCode(m.ExitCode)
+	}
+	return nil
+}
+
+// logShown is how much of a foreground run's output is left in the
+// terminal when it ends.
+const logShown = 4 << 20
 
 // showFinished prints the end of a finished job's output and how it ended,
 // and exits with the job's status.
@@ -122,6 +178,9 @@ type attachment struct {
 	u    ui
 
 	rows, cols int
+	foreground bool // started by mm <macro>, not mm -d: output goes inline
+	alt        bool // inline, the job is on the alternate screen
+	midLine    bool // inline, the last output didn't end a line
 	typing     bool
 	naming     bool
 	name       []rune // the name being typed
@@ -148,7 +207,13 @@ func (at *attachment) run() error {
 	defer term.Restore(fd, state)
 
 	at.measure()
-	at.write("\x1b[?1049h\x1b[H\x1b[2J")
+	if at.foreground {
+		// Make room for the toolbar on the bottom row, scrolling up if the
+		// cursor is on it.
+		at.write("\n\x1b[A")
+	} else {
+		at.write("\x1b[?1049h\x1b[H\x1b[2J")
+	}
 	at.fixScreen()
 	if err := at.conn.Hello(at.rows-1, at.cols); err != nil {
 		at.teardown()
@@ -202,6 +267,11 @@ func (at *attachment) run() error {
 			}
 			at.teardown()
 			term.Restore(fd, state)
+			if at.foreground {
+				if fresh, err := at.job.Reload(); err == nil && !fresh.Running() {
+					return at.app.endForeground(fresh, false)
+				}
+			}
 			at.app.jobEndLine(at.job, at.endSummary(ev.exit), ev.exit.Code == 0, "mm attach "+at.job.Handle()+" shows its output")
 			if ev.exit.Code != 0 {
 				return exitCode(ev.exit.Code)
@@ -253,7 +323,8 @@ func (a *App) showEnd(m *jobs.Meta) error {
 
 // keys handles input. Watching, d detaches, ctrl+c interrupts then kills,
 // i starts typing and n names the job; typing, everything goes to the job
-// until ctrl-\.
+// until esc. An esc with more keys straight after it, as arrow keys and
+// alt+key send, goes to the job.
 func (at *attachment) keys(b []byte) string {
 	result := ""
 	for len(b) > 0 {
@@ -262,18 +333,16 @@ func (at *attachment) keys(b []byte) string {
 			continue
 		}
 		if at.typing {
-			i := bytes.IndexByte(b, keyCtrlBackslash)
-			if i < 0 {
+			if b[len(b)-1] != keyEsc {
 				at.conn.Input(b)
 				return result
 			}
-			if i > 0 {
-				at.conn.Input(b[:i])
+			if len(b) > 1 {
+				at.conn.Input(b[:len(b)-1])
 			}
 			at.typing, at.note = false, ""
 			at.drawToolbar()
-			b = b[i+1:]
-			continue
+			return result
 		}
 		k := b[0]
 		b = b[1:]
@@ -314,11 +383,11 @@ func (at *attachment) nameKeys(b []byte) []byte {
 			at.saveName(string(at.name))
 			at.drawToolbar()
 			return b[i+1:]
-		case k == keyCtrlC || (k == 0x1b && i == len(b)-1):
+		case k == keyCtrlC || (k == keyEsc && i == len(b)-1):
 			at.naming = false
 			at.drawToolbar()
 			return b[i+1:]
-		case k == 0x1b:
+		case k == keyEsc:
 			return nil // an arrow or other special key: ignored
 		case k == 0x7f || k == 0x08:
 			if len(at.name) > 0 {
@@ -389,9 +458,21 @@ func (at *attachment) output(b []byte) {
 			b = b[:i]
 		}
 	}
-	b = ownScreen(b)
+	switched := false
+	if at.foreground {
+		// Inline, a full-screen job uses the terminal's own alternate
+		// screen, and the toolbar follows it there and back.
+		if i, _, _ := nextScreenSwitch(b); i >= 0 {
+			switched, at.alt = true, endsOnAlt(b)
+		}
+		if len(b) > 0 {
+			at.midLine = b[len(b)-1] != '\n'
+		}
+	} else {
+		b = ownScreen(b)
+	}
 	at.out.Write(b)
-	if scanScreen(b) {
+	if switched || scanScreen(b) {
 		at.fixScreen()
 	}
 }
@@ -409,6 +490,59 @@ func ownScreen(b []byte) []byte {
 		}
 	}
 	return b
+}
+
+// plainScreen keeps what output would have left on the main screen: what
+// a full-screen program drew on the alternate screen is dropped, as the
+// terminal would have dropped it.
+func plainScreen(b []byte) []byte {
+	if !bytes.Contains(b, []byte("\x1b[?")) {
+		return b
+	}
+	var out []byte
+	alt := false
+	for len(b) > 0 {
+		i, n, enter := nextScreenSwitch(b)
+		if i < 0 {
+			if !alt {
+				out = append(out, b...)
+			}
+			break
+		}
+		if !alt {
+			out = append(out, b[:i]...)
+		}
+		alt, b = enter, b[i+n:]
+	}
+	return out
+}
+
+// endsOnAlt is true when the last screen switch in b enters the alternate
+// screen.
+func endsOnAlt(b []byte) bool {
+	alt := false
+	for {
+		i, n, enter := nextScreenSwitch(b)
+		if i < 0 {
+			return alt
+		}
+		alt, b = enter, b[i+n:]
+	}
+}
+
+// nextScreenSwitch finds the first switch to or from the alternate screen
+// in b: where it is, how long, and whether it enters.
+func nextScreenSwitch(b []byte) (at, n int, enter bool) {
+	at = -1
+	for _, mode := range []string{"1049", "1047", "47"} {
+		for _, end := range []string{"h", "l"} {
+			seq := "\x1b[?" + mode + end
+			if i := bytes.Index(b, []byte(seq)); i >= 0 && (at < 0 || i < at) {
+				at, n, enter = i, len(seq), end == "h"
+			}
+		}
+	}
+	return at, n, enter
 }
 
 // scanScreen is true when b may reset the scroll region or clear the
@@ -482,7 +616,10 @@ func (at *attachment) toolbar() string {
 		modeStyle = badge.Foreground(colWarn)
 		hints = "job name: " + u.bold(string(at.name)) + "▏  " + u.faint("enter save · esc cancel · empty removes it")
 	case at.typing:
-		mode, hints = " TYPING ", `keys go to the job · ctrl-\ back to watching`
+		mode, hints = " TYPING ", "keys go to the job · esc to detach or name"
+		if !at.foreground {
+			hints = "keys go to the job · esc back to watching"
+		}
 		modeStyle = badge.Foreground(colOK)
 	}
 	if at.note != "" && !at.naming {
@@ -504,10 +641,24 @@ func (at *attachment) toolbar() string {
 // full-screen job may have left on turned off, and the main screen.
 func (at *attachment) teardown() {
 	var b strings.Builder
-	b.WriteString("\x1b[r")
+	if at.foreground {
+		// Inline, the output stays: leave a full-screen job's screen, clear
+		// the toolbar, and carry on below the output.
+		if at.alt {
+			b.WriteString("\x1b[?1049l")
+		}
+		fmt.Fprintf(&b, "\x1b7\x1b[r\x1b[%d;1H\x1b[2K\x1b8", at.rows)
+		if at.midLine {
+			b.WriteString("\r\n")
+		}
+	} else {
+		b.WriteString("\x1b[r")
+	}
 	// Show the cursor; normal cursor keys and keypad; no bracketed paste or
 	// mouse reporting; plain attributes.
 	b.WriteString("\x1b[?25h\x1b[?1l\x1b>\x1b[?2004l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[0m")
-	b.WriteString("\x1b[?1049l")
+	if !at.foreground {
+		b.WriteString("\x1b[?1049l")
+	}
 	at.write(b.String())
 }

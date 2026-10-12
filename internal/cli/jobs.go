@@ -30,24 +30,37 @@ func (a *App) runDetached(ref store.Ref, args []string, name string) error {
 	if m.Mode == "source" {
 		return fmt.Errorf("%s can't run detached: it's a \"# mode: source\" macro, which changes your current shell", ref.ID())
 	}
+	job, err := a.startJob(ref, m, rest, name)
+	if err != nil {
+		return err
+	}
+	u := a.errUI()
+	a.done("Started %s: %s", u.bold(job.Title()), ref.ID())
+	fmt.Fprintln(a.Stderr, u.faint(fmt.Sprintf("  mm attach %s to watch or type into it · mm jobs to list jobs", job.Handle())))
+	return nil
+}
+
+// startJob starts the filled-in macro m as a job and returns once its
+// helper is up.
+func (a *App) startJob(ref store.Ref, m macro.Macro, rest []string, name string) (*jobs.Meta, error) {
 	interp := m.Interpreter()
 	path, err := a.lookPath(interp[0])
 	if err != nil {
-		return fmt.Errorf("can't find %s to run %s; check the macro's #! line", interp[0], ref.ID())
+		return nil, fmt.Errorf("can't find %s to run %s; check the macro's #! line", interp[0], ref.ID())
 	}
 
 	root := a.store.JobsDir()
 	a.cleanJobs()
 	job, err := jobs.Create(root)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	// The job always runs its own copy, so what runs is exactly what was
 	// checked, whatever happens to the library meanwhile.
 	script := job.ScriptPath(macro.Ext)
 	if err := os.WriteFile(script, []byte(m.String()), 0o700); err != nil {
 		os.RemoveAll(job.JobDir())
-		return err
+		return nil, err
 	}
 	cwd, _ := os.Getwd()
 	rows, cols := jobTermSize()
@@ -58,7 +71,7 @@ func (a *App) runDetached(ref store.Ref, args []string, name string) error {
 	job.Notify = a.store.Config.Jobs.NotifyMode()
 	if err := job.Save(); err != nil {
 		os.RemoveAll(job.JobDir())
-		return err
+		return nil, err
 	}
 
 	start := a.StartJob
@@ -67,18 +80,14 @@ func (a *App) runDetached(ref store.Ref, args []string, name string) error {
 	}
 	if err := start(job.JobDir(), "MM_MACRO="+ref.Name, "MM_LIBRARY="+ref.Library); err != nil {
 		os.RemoveAll(job.JobDir())
-		return fmt.Errorf("can't start job: %w", err)
+		return nil, fmt.Errorf("can't start job: %w", err)
 	}
 	job, err = waitStarted(job)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	a.recordRun(ref)
-
-	u := a.errUI()
-	a.done("Started %s: %s", u.bold(job.Title()), ref.ID())
-	fmt.Fprintln(a.Stderr, u.faint(fmt.Sprintf("  mm attach %s to watch or type into it · mm jobs to list jobs", job.Handle())))
-	return nil
+	return job, nil
 }
 
 // startJobReal starts mm __job <dir> in its own session, so it outlives

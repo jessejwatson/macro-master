@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,6 +16,12 @@ func TestMain(m *testing.M) {
 	// Job tests re-run this binary as mm itself, for helpers and attach.
 	if os.Getenv("MM_TEST_MAIN") == "1" {
 		os.Exit(NewApp("test").Run(os.Args[1:]))
+	}
+	// Anything that starts this binary as mm without saying so would run
+	// the whole suite again, which starts more: refuse rather than fork.
+	if len(os.Args) > 1 && !strings.HasPrefix(os.Args[1], "-test.") {
+		fmt.Fprintln(os.Stderr, "cli.test started as mm without MM_TEST_MAIN=1:", os.Args[1:])
+		os.Exit(2)
 	}
 	// Keep the user's git config (signing, hooks, identity) out of tests.
 	os.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)

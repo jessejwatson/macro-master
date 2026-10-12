@@ -273,7 +273,7 @@ func TestAttachWatchTypeDetachAndStop(t *testing.T) {
 	p.waitFor("TYPING")
 	p.send("bob\r")
 	p.waitFor("hello bob")
-	p.send("\x1c") // ctrl-\ back to watching
+	p.send("\x1b") // esc back to watching
 	p.send("d")
 	if code := p.exit(); code != 0 {
 		t.Errorf("detach exit = %d", code)
@@ -301,6 +301,48 @@ func TestAttachWatchTypeDetachAndStop(t *testing.T) {
 	}
 	if !strings.Contains(p.screen(), "Job 1 interrupted") {
 		t.Errorf("end line missing:\n%q", p.screen())
+	}
+}
+
+func TestForegroundRunIsAnAttachedJob(t *testing.T) {
+	ta := newJobApp(t)
+	ta.save(t, "personal/quick", "echo \"quick $1\"\nexit 3\n")
+	ta.save(t, "personal/ask", "read -r -p 'name? ' n\necho \"hello $n\"\nsleep 30\n")
+	root := filepath.Join(ta.Home, "jobs")
+
+	// One that ends by itself leaves its output and exit status, and no job.
+	p := startPty(t, ta.Home, "quick", "one")
+	if code := p.exit(); code != 3 {
+		t.Errorf("exit = %d, want 3", code)
+	}
+	s := p.screen()
+	if !strings.Contains(s[max(strings.LastIndex(s, "\x1b[?1049l"), 0):], "quick one") {
+		t.Errorf("output not left in the terminal:\n%q", s)
+	}
+	if left := jobs.List(root); len(left) != 0 {
+		t.Errorf("finished foreground job kept: %v", left)
+	}
+
+	// Keys go straight to it; esc then d detaches and leaves it running.
+	p = startPty(t, ta.Home, "ask")
+	p.waitFor("TYPING")
+	p.waitFor("name? ")
+	p.send("bob\r")
+	p.waitFor("hello bob")
+	p.send("\x1b")
+	p.waitFor("WATCHING")
+	p.send("d")
+	if code := p.exit(); code != 0 {
+		t.Errorf("detach exit = %d", code)
+	}
+	// Inline, not on the alternate screen, so the output stays put.
+	s = p.screen()
+	if strings.Contains(s, "\x1b[?1049") || !strings.Contains(s, "\x1b[r") ||
+		!(strings.Index(s, "hello bob") < strings.LastIndex(s, "Detached from job")) {
+		t.Errorf("foreground output not inline:\n%q", s)
+	}
+	if l := jobs.List(root); len(l) != 1 || !l[0].Running() {
+		t.Errorf("detached job not running: %v", l)
 	}
 }
 
