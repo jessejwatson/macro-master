@@ -102,17 +102,24 @@ func Helper(dir string) error {
 		os.Remove(m.Script)
 	}
 
-	notify := m.Notify
 	attached := h.finish(Exit{
 		Code:    m.ExitCode,
 		Outcome: m.Outcome(),
-		Bell:    notify == "bell" || notify == "both",
+		Bell:    m.Notify == "bell" || m.Notify == "both",
 	})
-	if attached == 0 && (notify == "desktop" || notify == "both") {
-		Notify(m)
+	// Nobody watching is told; a foreground job's starter may not have
+	// connected yet, so it's only told once someone has detached.
+	h.mu.Lock()
+	unwatched := attached == 0 && (!m.Foreground || h.detached)
+	h.mu.Unlock()
+	if unwatched && (m.Notify == "desktop" || m.Notify == "both") {
+		showNotification(m)
 	}
 	return nil
 }
+
+// showNotification is Notify; tests replace it.
+var showNotification = Notify
 
 // exitInfo turns cmd.Wait's result into an exit code, using 128+n for a
 // job killed by signal n as shells do.
@@ -138,11 +145,12 @@ type hub struct {
 	log     *os.File
 	logSize int64
 
-	mu      sync.Mutex
-	recent  []byte
-	trimmed bool // recent has lost its start
-	clients map[*client]bool
-	ended   *Exit
+	mu       sync.Mutex
+	recent   []byte
+	trimmed  bool // recent has lost its start
+	clients  map[*client]bool
+	detached bool // a client left before the job ended
+	ended    *Exit
 }
 
 type client struct {
@@ -266,6 +274,9 @@ func (h *hub) handle(conn net.Conn) {
 	go c.writer()
 	defer func() {
 		h.mu.Lock()
+		if h.clients[c] {
+			h.detached = true
+		}
 		delete(h.clients, c)
 		h.mu.Unlock()
 		c.close()

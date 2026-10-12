@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -272,5 +273,84 @@ func TestHelperServesClients(t *testing.T) {
 	}
 	if _, err := os.Stat(m.SocketPath()); !os.IsNotExist(err) {
 		t.Error("socket left behind")
+	}
+}
+
+func TestNotifiesOnlyWhenUnwatched(t *testing.T) {
+	var mu sync.Mutex
+	shown := 0
+	showNotification = func(*Meta) { mu.Lock(); shown++; mu.Unlock() }
+	t.Cleanup(func() { showNotification = Notify })
+
+	// run runs a job that ends when its go file appears, with during
+	// doing what clients do meanwhile, and reports whether it notified.
+	run := func(foreground bool, during func(m *Meta, end func())) bool {
+		t.Helper()
+		root := t.TempDir()
+		m, err := Create(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		gofile := filepath.Join(root, "go")
+		m.Macro, m.Path, m.Dir, m.Rows, m.Cols, m.Notify = "personal/t", "/bin/sh", root, 10, 80, "desktop"
+		m.Foreground = foreground
+		m.Argv = []string{"sh", "-c", `while [ ! -e "$0" ]; do sleep 0.02; done`, gofile}
+		if err := m.Save(); err != nil {
+			t.Fatal(err)
+		}
+		mu.Lock()
+		shown = 0
+		mu.Unlock()
+		done := make(chan error)
+		go func() { done <- Helper(m.JobDir()) }()
+		end := func() { os.WriteFile(gofile, nil, 0o600) }
+		during(m, func() {
+			end()
+			if err := <-done; err != nil {
+				t.Fatal(err)
+			}
+		})
+		mu.Lock()
+		defer mu.Unlock()
+		return shown > 0
+	}
+	dialHello := func(m *Meta) *Conn {
+		for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+			if c, err := Dial(m); err == nil {
+				c.Hello(10, 80)
+				time.Sleep(100 * time.Millisecond) // let the helper count it
+				return c
+			} else if time.Now().After(deadline) {
+				t.Fatal(err)
+			}
+		}
+	}
+	nobody := func(m *Meta, end func()) { end() }
+	watching := func(m *Meta, end func()) {
+		c := dialHello(m)
+		defer c.Close()
+		end()
+	}
+	left := func(m *Meta, end func()) {
+		dialHello(m).Close()
+		time.Sleep(100 * time.Millisecond) // let the helper see it go
+		end()
+	}
+
+	for _, tc := range []struct {
+		name       string
+		foreground bool
+		during     func(*Meta, func())
+		want       bool
+	}{
+		{"detached job, nobody watching", false, nobody, true},
+		{"detached job, attached", false, watching, false},
+		{"foreground job, still attached", true, watching, false},
+		{"foreground job, ended before attaching", true, nobody, false},
+		{"foreground job, detached from", true, left, true},
+	} {
+		if got := run(tc.foreground, tc.during); got != tc.want {
+			t.Errorf("%s: notified = %v, want %v", tc.name, got, tc.want)
+		}
 	}
 }

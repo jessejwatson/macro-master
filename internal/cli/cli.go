@@ -9,6 +9,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/charmbracelet/x/term"
+
 	"macro-master/internal/clipboard"
 	"macro-master/internal/hosts"
 	"macro-master/internal/jobs"
@@ -26,6 +28,9 @@ type App struct {
 	// Prompts reads answers to questions. Nil means there is no terminal to
 	// ask, so commands that need confirmation refuse.
 	Prompts *bufio.Reader
+	// promptTTY is the terminal Prompts reads, so yes/no questions can take
+	// a single key. Nil reads whole lines.
+	promptTTY *os.File
 	// Interactive is true when stdin and stdout are both terminals, which
 	// the picker needs.
 	Interactive bool
@@ -80,10 +85,10 @@ func NewApp(version string) *App {
 	stdinTTY, stdoutTTY := isTerminal(os.Stdin), isTerminal(os.Stdout)
 	a.Interactive = stdinTTY && stdoutTTY
 	if stdinTTY {
-		a.Prompts = bufio.NewReader(os.Stdin)
+		a.Prompts, a.promptTTY = bufio.NewReader(os.Stdin), os.Stdin
 	} else if tty, err := os.Open("/dev/tty"); err == nil {
 		// stdin is busy (a pipe or --stdin content); ask on the terminal.
-		a.Prompts = bufio.NewReader(tty)
+		a.Prompts, a.promptTTY = bufio.NewReader(tty), tty
 	}
 	return a
 }
@@ -286,6 +291,16 @@ func (a *App) ask(question string) (string, error) {
 	if a.Prompts == nil {
 		return "", errors.New("this needs a terminal to answer questions")
 	}
+	a.printQuestion(question)
+	line, err := a.Prompts.ReadString('\n')
+	if err != nil && (err != io.EOF || line == "") {
+		fmt.Fprintln(a.Stderr)
+		return "", errCancelled
+	}
+	return strings.TrimSpace(line), nil
+}
+
+func (a *App) printQuestion(question string) {
 	if u := a.errUI(); u.on {
 		// A trailing [default] or [y/N] hint is dimmed.
 		q, hint := strings.TrimRight(question, " "), ""
@@ -295,12 +310,6 @@ func (a *App) ask(question string) (string, error) {
 		question = u.accent("? ") + u.bold(q) + u.faint(hint) + " "
 	}
 	fmt.Fprint(a.Stderr, question)
-	line, err := a.Prompts.ReadString('\n')
-	if err != nil && (err != io.EOF || line == "") {
-		fmt.Fprintln(a.Stderr)
-		return "", errCancelled
-	}
-	return strings.TrimSpace(line), nil
 }
 
 // confirm asks a yes/no question; def is the answer for a bare Enter.
@@ -308,6 +317,9 @@ func (a *App) confirm(question string, def bool) (bool, error) {
 	hint := "[y/N]"
 	if def {
 		hint = "[Y/n]"
+	}
+	if a.promptTTY != nil {
+		return a.confirmKey(question+" "+hint+" ", def)
 	}
 	ans, err := a.ask(question + " " + hint + " ")
 	if err != nil {
@@ -321,6 +333,51 @@ func (a *App) confirm(question string, def bool) (bool, error) {
 	default:
 		return false, nil
 	}
+}
+
+// confirmKey answers a yes/no question with one key on the terminal: y or
+// n, enter for the default, ctrl+c, ctrl+d or esc to cancel.
+func (a *App) confirmKey(question string, def bool) (bool, error) {
+	a.printQuestion(question)
+	state, err := term.MakeRaw(a.promptTTY.Fd())
+	if err != nil {
+		return false, err
+	}
+	var yes bool
+	for {
+		k, err := a.Prompts.ReadByte()
+		if k == 0x1b && a.Prompts.Buffered() > 0 {
+			// An arrow or other special key: ignored.
+			a.Prompts.Discard(a.Prompts.Buffered())
+			continue
+		}
+		if err != nil || k == 0x03 || k == 0x04 || k == 0x1b {
+			term.Restore(a.promptTTY.Fd(), state)
+			fmt.Fprintln(a.Stderr)
+			if k == 0x03 {
+				return false, exitCode(130)
+			}
+			return false, errCancelled
+		}
+		switch k {
+		case 'y', 'Y':
+			yes = true
+		case 'n', 'N':
+			yes = false
+		case '\r', '\n':
+			yes = def
+		default:
+			continue
+		}
+		break
+	}
+	term.Restore(a.promptTTY.Fd(), state)
+	if yes {
+		fmt.Fprintln(a.Stderr, "y")
+	} else {
+		fmt.Fprintln(a.Stderr, "n")
+	}
+	return yes, nil
 }
 
 func (a *App) lookPath(name string) (string, error) {

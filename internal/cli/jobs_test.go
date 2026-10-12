@@ -38,9 +38,20 @@ func newJobApp(t *testing.T) *testApp {
 		return nil
 	}
 	t.Cleanup(func() {
-		for _, m := range jobs.List(filepath.Join(ta.Home, "jobs")) {
+		root := filepath.Join(ta.Home, "jobs")
+		for _, m := range jobs.List(root) {
 			if m.Running() && m.PID != 0 {
 				syscall.Kill(-m.PID, syscall.SIGKILL)
+			}
+		}
+		// Let the helpers record the end before the home is removed.
+		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+			running := false
+			for _, m := range jobs.List(root) {
+				running = running || m.Running()
+			}
+			if !running {
+				break
 			}
 		}
 	})
@@ -343,6 +354,27 @@ func TestForegroundRunIsAnAttachedJob(t *testing.T) {
 	}
 	if l := jobs.List(root); len(l) != 1 || !l[0].Running() {
 		t.Errorf("detached job not running: %v", l)
+	}
+}
+
+func TestConfirmTakesOneKey(t *testing.T) {
+	ta := newApp(t)
+	ta.save(t, "personal/keep", "echo\n")
+	ta.save(t, "personal/gone", "echo\n")
+
+	// n on its own answers; arrow keys are ignored.
+	p := startPty(t, ta.Home, "rm", "keep")
+	p.waitFor("[y/N]")
+	p.send("\x1b[A")
+	p.send("n")
+	if code := p.exit(); code == 0 || !ta.exists("personal/keep") {
+		t.Errorf("n: exit %d, kept %v", code, ta.exists("personal/keep"))
+	}
+	p = startPty(t, ta.Home, "rm", "gone")
+	p.waitFor("[y/N]")
+	p.send("y")
+	if code := p.exit(); code != 0 || ta.exists("personal/gone") {
+		t.Errorf("y: exit %d, still there %v\n%q", code, ta.exists("personal/gone"), p.screen())
 	}
 }
 

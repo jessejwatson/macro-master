@@ -61,7 +61,7 @@ func (a *App) attachJob(m *jobs.Meta) error {
 // so detaching leaves it there. If it ends before you detach, the job is
 // forgotten, as if it had run there directly.
 func (a *App) runAttached(ref store.Ref, m macro.Macro, rest []string) error {
-	job, err := a.startJob(ref, m, rest, "")
+	job, err := a.startJob(ref, m, rest, "", true)
 	if err != nil {
 		return err
 	}

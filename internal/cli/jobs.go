@@ -30,7 +30,7 @@ func (a *App) runDetached(ref store.Ref, args []string, name string) error {
 	if m.Mode == "source" {
 		return fmt.Errorf("%s can't run detached: it's a \"# mode: source\" macro, which changes your current shell", ref.ID())
 	}
-	job, err := a.startJob(ref, m, rest, name)
+	job, err := a.startJob(ref, m, rest, name, false)
 	if err != nil {
 		return err
 	}
@@ -41,8 +41,8 @@ func (a *App) runDetached(ref store.Ref, args []string, name string) error {
 }
 
 // startJob starts the filled-in macro m as a job and returns once its
-// helper is up.
-func (a *App) startJob(ref store.Ref, m macro.Macro, rest []string, name string) (*jobs.Meta, error) {
+// helper is up. A foreground job is about to be attached to.
+func (a *App) startJob(ref store.Ref, m macro.Macro, rest []string, name string, foreground bool) (*jobs.Meta, error) {
 	interp := m.Interpreter()
 	path, err := a.lookPath(interp[0])
 	if err != nil {
@@ -69,6 +69,7 @@ func (a *App) startJob(ref store.Ref, m macro.Macro, rest []string, name string)
 	job.Argv = append(append(append([]string{}, interp...), script), rest...)
 	job.Rows, job.Cols = rows, cols
 	job.Notify = a.store.Config.Jobs.NotifyMode()
+	job.Foreground = foreground
 	if err := job.Save(); err != nil {
 		os.RemoveAll(job.JobDir())
 		return nil, err
