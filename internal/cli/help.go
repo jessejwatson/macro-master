@@ -76,7 +76,10 @@ Looking at macros:
 Detached jobs:
   mm -d <name> [args...]        Start a job; also mm run -d, or --detach
   mm -d -n <job> <name> [...]   Start a job with a name (-n alone detaches too)
-  mm jobs [clear]               List jobs, or delete the finished ones
+  mm jobs [--all]               List running jobs and the newest others, up
+                                to 10 or what fits the terminal; --all (-a)
+                                lists every one
+  mm jobs clear                 Delete the finished jobs
   mm attach [job]               Watch or type into a job; with no job, the
                                 only running one. A job is its number, its
                                 name or its macro. Finished jobs show their

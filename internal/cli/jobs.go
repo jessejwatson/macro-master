@@ -151,10 +151,33 @@ func (a *App) cleanJobs() {
 	jobs.Clean(a.store.JobsDir(), c.KeepDuration(), c.KeepCount())
 }
 
+// jobsShown is the most jobs mm jobs lists without --all. In a terminal
+// it lists fewer if that's what fits, so none scroll off the top.
+const jobsShown = 10
+
+// jobsFit is how many jobs mm jobs lists without --all: at most jobsShown,
+// leaving room in the terminal for the header, the line about older jobs,
+// the command and the next prompt.
+func (a *App) jobsFit() int {
+	n := jobsShown
+	if a.Height > 0 {
+		n = min(n, max(a.Height-4, 1))
+	}
+	return n
+}
+
 // cmdJobs lists jobs, or with "clear" deletes the finished ones.
 func (a *App) cmdJobs(args []string) error {
 	root := a.store.JobsDir()
-	if len(args) == 1 && args[0] == "clear" {
+	all := false
+	for i := 0; i < len(args); i++ {
+		if args[i] == "-a" || args[i] == "--all" {
+			all = true
+			args = append(args[:i:i], args[i+1:]...)
+			i--
+		}
+	}
+	if len(args) == 1 && args[0] == "clear" && !all {
 		n := 0
 		for _, m := range jobs.List(root) {
 			if !m.Running() && jobs.Remove(m) == nil {
@@ -165,13 +188,20 @@ func (a *App) cmdJobs(args []string) error {
 		return nil
 	}
 	if len(args) > 0 {
-		return errors.New("usage: mm jobs [clear]")
+		return errors.New("usage: mm jobs [--all | clear]")
 	}
 	a.cleanJobs()
 	list := jobs.List(root)
 	if len(list) == 0 {
 		fmt.Fprintln(a.Stderr, a.errUI().faint("No jobs. Run a macro detached with: mm -d <name>"))
 		return nil
+	}
+	hidden := 0
+	if !all {
+		list, hidden = newestJobs(list, a.jobsFit())
+	}
+	if hidden > 0 {
+		defer fmt.Fprintln(a.Stderr, a.errUI().faint(fmt.Sprintf("%d older %s not shown · mm jobs --all to list them", hidden, plural(hidden, "job", "jobs"))))
 	}
 	u := a.outUI()
 	headers := []string{"ID", "NAME", "STATUS", "MACRO", "STARTED", "TOOK"}
@@ -207,6 +237,33 @@ func (a *App) cmdJobs(args []string) error {
 		fmt.Fprintln(w, strings.Join(r, "\t"))
 	}
 	return w.Flush()
+}
+
+// newestJobs keeps n jobs of list (newest first): the running ones, then
+// the newest of the rest. It says how many it left out.
+func newestJobs(list []*jobs.Meta, n int) (kept []*jobs.Meta, hidden int) {
+	keep := make([]bool, len(list))
+	left := n
+	for i, m := range list {
+		if left > 0 && m.Running() {
+			keep[i] = true
+			left--
+		}
+	}
+	for i := range list {
+		if left > 0 && !keep[i] {
+			keep[i] = true
+			left--
+		}
+	}
+	for i, m := range list {
+		if keep[i] {
+			kept = append(kept, m)
+		} else {
+			hidden++
+		}
+	}
+	return kept, hidden
 }
 
 // trimTableEdges drops a hidden-border table's blank first and last lines

@@ -39,6 +39,8 @@ type App struct {
 	StyleOut, StyleErr bool
 	Icons              string
 	Width              int
+	// Height is the terminal's rows when stdout is one, otherwise 0.
+	Height int
 
 	Home          string
 	ReadClipboard func() (string, error)
@@ -84,6 +86,11 @@ func NewApp(version string) *App {
 	}
 	stdinTTY, stdoutTTY := isTerminal(os.Stdin), isTerminal(os.Stdout)
 	a.Interactive = stdinTTY && stdoutTTY
+	if stdoutTTY {
+		if _, h, err := term.GetSize(os.Stdout.Fd()); err == nil {
+			a.Height = h
+		}
+	}
 	if stdinTTY {
 		a.Prompts, a.promptTTY = bufio.NewReader(os.Stdin), os.Stdin
 	} else if tty, err := os.Open("/dev/tty"); err == nil {

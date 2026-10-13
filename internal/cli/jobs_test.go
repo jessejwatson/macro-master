@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -140,7 +141,7 @@ func TestDetachRefusalsAndErrors(t *testing.T) {
 		{[]string{"attach"}, "no jobs are running"},
 		{[]string{"attach", "9"}, `no job "9"`},
 		{[]string{"kill", "nope"}, `no job "nope"`},
-		{[]string{"jobs", "x"}, "usage: mm jobs [clear]"},
+		{[]string{"jobs", "x"}, "usage: mm jobs [--all | clear]"},
 	}
 	for _, c := range cases {
 		if code := ta.run(nil, c.args...); code == 0 || !strings.Contains(ta.err.String(), c.want) {
@@ -593,5 +594,56 @@ func TestRenameReportsAnOlderHelper(t *testing.T) {
 	at.saveName("web")
 	if !strings.Contains(at.note, "started by an older mm") || at.job.JobName != "" {
 		t.Errorf("note = %q, name = %q", at.note, at.job.JobName)
+	}
+}
+
+func TestJobsListsTheNewestUnlessAll(t *testing.T) {
+	ta := newJobApp(t)
+	root := filepath.Join(ta.Home, "jobs")
+	now := time.Now()
+	for i := 1; i <= jobsShown+3; i++ {
+		m, err := jobs.Create(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		m.Macro, m.Started = "personal/x", now
+		if i == 1 {
+			m.HelperPID = os.Getpid() // an old job that's still running
+			t.Cleanup(func() { os.RemoveAll(m.JobDir()) })
+		} else {
+			m.Ended = &now
+		}
+		if err := m.Save(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ids := func() []string {
+		var out []string
+		for _, sm := range regexp.MustCompile(`(?m)^(\d+)\s`).FindAllStringSubmatch(ta.out.String(), -1) {
+			out = append(out, sm[1])
+		}
+		return out
+	}
+
+	ta.run(nil, "jobs")
+	got := ids()
+	if len(got) != jobsShown || got[0] != "13" || got[jobsShown-2] != "5" || got[jobsShown-1] != "1" {
+		t.Errorf("jobs listed %v, want 13..5 and running job 1", got)
+	}
+	if !strings.Contains(ta.err.String(), "3 older jobs not shown") {
+		t.Errorf("jobs stderr = %q", ta.err)
+	}
+
+	ta.run(nil, "jobs", "--all")
+	if got := ids(); len(got) != jobsShown+3 || ta.err.Len() != 0 {
+		t.Errorf("jobs --all listed %v, stderr %q", got, ta.err)
+	}
+
+	// A 7-row terminal fits the header, 3 jobs, the note, the command and
+	// the next prompt. The running job takes one of the 3.
+	ta.Height = 7
+	ta.run(nil, "jobs")
+	if got := ids(); !slices.Equal(got, []string{"13", "12", "1"}) || !strings.Contains(ta.err.String(), "10 older jobs not shown") {
+		t.Errorf("jobs in 7 rows listed %v, stderr %q", got, ta.err)
 	}
 }
