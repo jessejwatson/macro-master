@@ -79,7 +79,7 @@ func TestConfigPanelChoicesAndText(t *testing.T) {
 	for _, s := range m.items {
 		keys = append(keys, s.key)
 	}
-	want := "default_library sync_interval jobs.notify jobs.keep_for jobs.keep_max hosts.git.example.com.type hosts.git.example.com.api"
+	want := "default_library sync_interval jobs.notify jobs.sound jobs.keep_for jobs.keep_max hosts.git.example.com.type hosts.git.example.com.api"
 	if strings.Join(keys, " ") != want {
 		t.Fatalf("settings = %v", keys)
 	}
@@ -91,6 +91,10 @@ func TestConfigPanelChoicesAndText(t *testing.T) {
 	m = press(m, "left", "left") // bell -> desktop -> off
 	if ta.store.Config.Jobs.Notify != "off" {
 		t.Errorf("notify after left = %q", ta.store.Config.Jobs.Notify)
+	}
+	m = press(m, "down", "right", "up") // sound: both -> success
+	if ta.store.Config.Jobs.Sound != "success" {
+		t.Errorf("sound = %q", ta.store.Config.Jobs.Sound)
 	}
 	m = press(m, "up", "up", "enter") // default library cycles to work
 	if ta.store.Config.DefaultLibrary != "work" {

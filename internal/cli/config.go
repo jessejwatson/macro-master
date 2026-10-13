@@ -67,6 +67,14 @@ func (a *App) settings() []setting {
 			set:     func(c *store.Config, v string) { c.Jobs.Notify = v },
 		},
 		{
+			section: "Detached jobs", key: "jobs.sound", label: "Notification sound",
+			help:    "Which desktop notifications play a sound: both · success · failure · off",
+			choices: store.JobSoundModes,
+			def:     store.DefaultJobSound,
+			get:     func(c store.Config) string { return c.Jobs.Sound },
+			set:     func(c *store.Config, v string) { c.Jobs.Sound = v },
+		},
+		{
 			section: "Detached jobs", key: "jobs.keep_for", label: "Keep finished for",
 			help: "Finished jobs older than this are deleted, e.g. 7d or 12h; 0 for no age limit.",
 			def:  "7d",

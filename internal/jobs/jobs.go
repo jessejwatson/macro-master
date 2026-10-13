@@ -51,6 +51,9 @@ type Meta struct {
 	Rows    int      `json:"rows"`
 	Cols    int      `json:"cols"`
 	Notify  string   `json:"notify"`
+	// Sound is which desktop notifications play a sound, as jobs.sound in
+	// config.json; empty is "both".
+	Sound string `json:"sound,omitempty"`
 	// Foreground is a job started attached, by mm <macro>: it notifies
 	// only if left running by a detach.
 	Foreground bool `json:"foreground,omitempty"`

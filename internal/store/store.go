@@ -46,6 +46,9 @@ type JobsConfig struct {
 	// when nobody is attached, "bell" in attached terminals, "both" or
 	// "off".
 	Notify string `json:"notify,omitempty"`
+	// Sound is which desktop notifications play a sound: "both" (the
+	// default), "success", "failure" or "off".
+	Sound string `json:"sound,omitempty"`
 	// KeepFor is how long finished jobs are kept, e.g. "7d" or "12h"; "0"
 	// keeps them until KeepMax pushes them out.
 	KeepFor string `json:"keep_for,omitempty"`
@@ -56,12 +59,24 @@ type JobsConfig struct {
 // Job defaults.
 const (
 	DefaultJobNotify  = "desktop"
+	DefaultJobSound   = "both"
 	DefaultJobKeepFor = 7 * 24 * time.Hour
 	DefaultJobKeepMax = 50
 )
 
 // JobNotifyModes are the values jobs.notify may take.
 var JobNotifyModes = []string{"desktop", "bell", "both", "off"}
+
+// JobSoundModes are the values jobs.sound may take.
+var JobSoundModes = []string{"both", "success", "failure", "off"}
+
+// SoundMode is Sound, or the default when unset or unknown.
+func (j JobsConfig) SoundMode() string {
+	if slices.Contains(JobSoundModes, j.Sound) {
+		return j.Sound
+	}
+	return DefaultJobSound
+}
 
 // NotifyMode is Notify, or the default when unset or unknown.
 func (j JobsConfig) NotifyMode() string {
@@ -129,6 +144,9 @@ func (s *Store) CheckConfig(c Config) error {
 	}
 	if n := c.Jobs.Notify; n != "" && !slices.Contains(JobNotifyModes, n) {
 		return fmt.Errorf("jobs.notify: %q isn't one of %s", n, strings.Join(JobNotifyModes, ", "))
+	}
+	if s := c.Jobs.Sound; s != "" && !slices.Contains(JobSoundModes, s) {
+		return fmt.Errorf("jobs.sound: %q isn't one of %s", s, strings.Join(JobSoundModes, ", "))
 	}
 	if _, err := ParseKeepFor(c.Jobs.KeepFor); err != nil {
 		return fmt.Errorf("jobs.keep_for: %w", err)

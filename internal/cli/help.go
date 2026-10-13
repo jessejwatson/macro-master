@@ -164,8 +164,11 @@ Looks:
 
 Job settings (in mm config):
   Notify when done: desktop, a notification when a job ends and nobody's
-  attached; bell, a bell in attached terminals; both; or off. Finished
-  jobs are kept for 7d and at most 50 of them, unless you change it.
+  attached; bell, a bell in attached terminals; both; or off. A desktop
+  notification shows how the job ended and its last line of output.
+  Notification sound: both (the default), success, failure or off.
+  Finished jobs are kept for 7d and at most 50 of them, unless you change
+  it.
 
 Files:
   ~/.config/mm ($XDG_CONFIG_HOME/mm, or $MM_HOME if set) holds config.json,
