@@ -13,6 +13,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"charm.land/lipgloss/v2/table"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/term"
 
 	"macro-master/internal/jobs"
@@ -69,6 +70,7 @@ func (a *App) startJob(ref store.Ref, m macro.Macro, rest []string, name string,
 	job.Argv = append(append(append([]string{}, interp...), script), rest...)
 	job.Rows, job.Cols = rows, cols
 	job.Notify = a.store.Config.Jobs.NotifyMode()
+	job.Sound = a.store.Config.Jobs.SoundMode()
 	job.Foreground = foreground
 	if err := job.Save(); err != nil {
 		os.RemoveAll(job.JobDir())
@@ -213,6 +215,9 @@ func (a *App) cmdJobs(args []string) error {
 		}
 		rows = append(rows, []string{u.bold(m.ID), name, jobStatus(u, m), m.Macro, u.faint(ago(m.Started)), u.faint(m.Duration().String())})
 	}
+	if a.Height > 0 { // stdout is a terminal, a.Width wide
+		fitJobNames(headers, rows, a.Width)
+	}
 	if u.on {
 		// lipgloss measures cells by what shows, not the colour codes in
 		// them, so styled columns line up.
@@ -237,6 +242,29 @@ func (a *App) cmdJobs(args []string) error {
 		fmt.Fprintln(w, strings.Join(r, "\t"))
 	}
 	return w.Flush()
+}
+
+// fitJobNames cuts long job names, marked with …, so the table's rows fit
+// in width columns without wrapping. Names keep at least a few letters.
+func fitJobNames(headers []string, rows [][]string, width int) {
+	const name, gap, least = 1, 2, 6
+	widths := make([]int, len(headers))
+	for _, r := range append([][]string{headers}, rows...) {
+		for i, c := range r {
+			widths[i] = max(widths[i], lipgloss.Width(c))
+		}
+	}
+	total := gap * (len(widths) - 1)
+	for _, w := range widths {
+		total += w
+	}
+	if total <= width || widths[name] <= least {
+		return
+	}
+	fit := max(widths[name]-(total-width), least)
+	for _, r := range rows {
+		r[name] = ansi.Truncate(r[name], fit, "…")
+	}
 }
 
 // newestJobs keeps n jobs of list (newest first): the running ones, then

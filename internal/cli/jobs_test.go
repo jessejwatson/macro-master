@@ -647,3 +647,17 @@ func TestJobsListsTheNewestUnlessAll(t *testing.T) {
 		t.Errorf("jobs in 7 rows listed %v, stderr %q", got, ta.err)
 	}
 }
+
+func TestFitJobNames(t *testing.T) {
+	headers := []string{"ID", "NAME", "MACRO"}
+	rows := [][]string{{"1", "pull-ctrl-endpoint-img", "personal/x"}, {"2", "-", "personal/x"}}
+	// 2 + 22 + 10 + two gaps of 2 = 38 columns; 30 leaves 14 for the name.
+	fitJobNames(headers, rows, 30)
+	if rows[0][1] != "pull-ctrl-end…" || rows[1][1] != "-" {
+		t.Errorf("rows = %q", rows)
+	}
+	fitJobNames(headers, rows, 5)
+	if rows[0][1] != "pull-…" {
+		t.Errorf("narrowest name = %q", rows[0][1])
+	}
+}
