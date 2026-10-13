@@ -171,15 +171,23 @@ func (a *App) jobsFit() int {
 // cmdJobs lists jobs, or with "clear" deletes the finished ones.
 func (a *App) cmdJobs(args []string) error {
 	root := a.store.JobsDir()
-	all := false
+	all, live := false, false
 	for i := 0; i < len(args); i++ {
-		if args[i] == "-a" || args[i] == "--all" {
+		switch args[i] {
+		case "-a", "--all":
 			all = true
-			args = append(args[:i:i], args[i+1:]...)
-			i--
+		case "-l", "--live":
+			live = true
+		default:
+			continue
 		}
+		args = append(args[:i:i], args[i+1:]...)
+		i--
 	}
-	if len(args) == 1 && args[0] == "clear" && !all {
+	if live && !all && len(args) == 0 {
+		return a.cmdJobsLive()
+	}
+	if len(args) == 1 && args[0] == "clear" && !all && !live {
 		n := 0
 		for _, m := range jobs.List(root) {
 			if !m.Running() && jobs.Remove(m) == nil {
@@ -190,7 +198,7 @@ func (a *App) cmdJobs(args []string) error {
 		return nil
 	}
 	if len(args) > 0 {
-		return errors.New("usage: mm jobs [--all | clear]")
+		return errors.New("usage: mm jobs [--all | --live | clear]")
 	}
 	a.cleanJobs()
 	list := jobs.List(root)
@@ -205,18 +213,36 @@ func (a *App) cmdJobs(args []string) error {
 	if hidden > 0 {
 		defer fmt.Fprintln(a.Stderr, a.errUI().faint(fmt.Sprintf("%d older %s not shown · mm jobs --all to list them", hidden, plural(hidden, "job", "jobs"))))
 	}
-	u := a.outUI()
+	width := 0
+	if a.Height > 0 { // stdout is a terminal, a.Width wide
+		width = a.Width
+	}
+	fmt.Fprintln(a.Stdout, jobsTable(a.outUI(), list, width, nil))
+	return nil
+}
+
+// jobsTable lays out jobs as a table, newest first. A width above 0 cuts
+// long names to fit it. pointer, if set, marks each job's row in the
+// first two columns, e.g. "› " for the chosen one.
+func jobsTable(u ui, list []*jobs.Meta, width int, pointer func(*jobs.Meta) string) string {
 	headers := []string{"ID", "NAME", "STATUS", "MACRO", "STARTED", "TOOK"}
+	if pointer != nil {
+		headers[0] = "  ID"
+	}
 	var rows [][]string
 	for _, m := range list {
 		name := u.fg(colAccent, m.JobName)
 		if m.JobName == "" {
 			name = u.faint("-")
 		}
-		rows = append(rows, []string{u.bold(m.ID), name, jobStatus(u, m), m.Macro, u.faint(ago(m.Started)), u.faint(m.Duration().String())})
+		id := u.bold(m.ID)
+		if pointer != nil {
+			id = pointer(m) + id
+		}
+		rows = append(rows, []string{id, name, jobStatus(u, m), m.Macro, u.faint(ago(m.Started)), u.faint(m.Duration().String())})
 	}
-	if a.Height > 0 { // stdout is a terminal, a.Width wide
-		fitJobNames(headers, rows, a.Width)
+	if width > 0 {
+		fitJobNames(headers, rows, width)
 	}
 	if u.on {
 		// lipgloss measures cells by what shows, not the colour codes in
@@ -233,15 +259,16 @@ func (a *App) cmdJobs(args []string) error {
 				}
 				return s
 			})
-		fmt.Fprintln(a.Stdout, trimTableEdges(t.String()))
-		return nil
+		return trimTableEdges(t.String())
 	}
-	w := tabwriter.NewWriter(a.Stdout, 0, 0, 2, ' ', 0)
+	var b strings.Builder
+	w := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(w, strings.Join(headers, "\t"))
 	for _, r := range rows {
 		fmt.Fprintln(w, strings.Join(r, "\t"))
 	}
-	return w.Flush()
+	w.Flush()
+	return strings.TrimRight(b.String(), "\n")
 }
 
 // fitJobNames cuts long job names, marked with …, so the table's rows fit

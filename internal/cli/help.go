@@ -79,6 +79,9 @@ Detached jobs:
   mm jobs [--all]               List running jobs and the newest others, up
                                 to 10 or what fits the terminal; --all (-a)
                                 lists every one
+  mm jobs --live (-l)           Watch running jobs and those that end
+                                meanwhile; a picks one to attach to, and
+                                detaching comes back. esc or q quits
   mm jobs clear                 Delete the finished jobs
   mm attach [job]               Watch or type into a job; with no job, the
                                 only running one. A job is its number, its

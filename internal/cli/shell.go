@@ -273,7 +273,7 @@ func complete(s *store.Store, words []string) []string {
 			cands = append(append(libs(), "--fav"), folders()...)
 		case "jobs":
 			if len(prev) == 1 {
-				cands = []string{"--all", "clear"}
+				cands = []string{"--all", "--live", "clear"}
 			}
 		case "lib":
 			switch {

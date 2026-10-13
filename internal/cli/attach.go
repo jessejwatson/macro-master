@@ -14,6 +14,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/term"
+	"github.com/muesli/cancelreader"
 
 	"macro-master/internal/jobs"
 	"macro-master/internal/macro"
@@ -183,10 +184,15 @@ type attachment struct {
 	midLine    bool // inline, the last output didn't end a line
 	typing     bool
 	naming     bool
-	name       []rune // the name being typed
-	armed      bool   // ctrl+c was pressed once; again kills
-	note       string
-	carry      []byte // an escape sequence cut off at the end of the last output
+	// live is attached from mm jobs --live, which shows outcome when this
+	// returns instead of it being printed.
+	live      bool
+	outcome   string
+	outcomeOK bool
+	name      []rune // the name being typed
+	armed     bool   // ctrl+c was pressed once; again kills
+	note      string
+	carry     []byte // an escape sequence cut off at the end of the last output
 }
 
 type attachEvent struct {
@@ -220,22 +226,40 @@ func (at *attachment) run() error {
 		return err
 	}
 
+	// The readers stop when this returns, so whatever has the terminal
+	// next, such as mm jobs --live, gets every key.
 	events := make(chan attachEvent, 64)
+	done := make(chan struct{})
+	defer close(done)
+	send := func(ev attachEvent) bool {
+		select {
+		case events <- ev:
+			return true
+		case <-done:
+			return false
+		}
+	}
 	go func() {
 		for {
 			out, exit, err := at.conn.Next()
-			events <- attachEvent{output: out, exit: exit, err: err}
-			if err != nil || exit != nil {
+			if !send(attachEvent{output: out, exit: exit, err: err}) || err != nil || exit != nil {
 				return
 			}
 		}
 	}()
+	keys, err := at.keyReader()
+	if err != nil {
+		at.teardown()
+		return err
+	}
+	defer keys.Close()
+	defer keys.Cancel()
 	go func() {
 		buf := make([]byte, 4096)
 		for {
-			n, err := at.in.Read(buf)
-			if n > 0 {
-				events <- attachEvent{keys: append([]byte(nil), buf[:n]...)}
+			n, err := keys.Read(buf)
+			if n > 0 && !send(attachEvent{keys: append([]byte(nil), buf[:n]...)}) {
+				return
 			}
 			if err != nil {
 				return
@@ -247,7 +271,9 @@ func (at *attachment) run() error {
 	defer signal.Stop(winch)
 	go func() {
 		for range winch {
-			events <- attachEvent{resize: true}
+			if !send(attachEvent{resize: true}) {
+				return
+			}
 		}
 	}()
 	var disarm *time.Timer
@@ -258,6 +284,10 @@ func (at *attachment) run() error {
 			at.teardown()
 			if fresh, err := at.job.Reload(); err == nil && !fresh.Running() {
 				term.Restore(fd, state)
+				if at.live {
+					at.ended(fresh.Summary(), fresh.ExitCode == 0 && fresh.Signal == 0 && fresh.Error == "")
+					return nil
+				}
 				return at.app.showEnd(fresh)
 			}
 			return fmt.Errorf("lost the connection to job %s: %v", at.job.ID, ev.err)
@@ -267,6 +297,10 @@ func (at *attachment) run() error {
 			}
 			at.teardown()
 			term.Restore(fd, state)
+			if at.live {
+				at.ended(at.endSummary(ev.exit), ev.exit.Code == 0)
+				return nil
+			}
 			if at.foreground {
 				if fresh, err := at.job.Reload(); err == nil && !fresh.Running() {
 					return at.app.endForeground(fresh, false)
@@ -291,6 +325,10 @@ func (at *attachment) run() error {
 			case "detach":
 				at.teardown()
 				term.Restore(fd, state)
+				if at.live {
+					at.outcome, at.outcomeOK = "Detached from "+at.job.Title(), true
+					return nil
+				}
 				u := at.app.errUI()
 				fmt.Fprintf(at.app.Stderr, "Detached from %s %s\n", at.job.Title(), u.faint("· mm attach "+at.job.Handle()+" to return"))
 				return nil
@@ -303,6 +341,39 @@ func (at *attachment) run() error {
 		}
 	}
 	return nil
+}
+
+// keyReader reads keys from the terminal in a way that can be stopped. On
+// macOS that needs /dev/tty itself, which the stopper can wait on.
+func (at *attachment) keyReader() (keyReader, error) {
+	var in io.Reader = at.in
+	closeIn := func() error { return nil }
+	if isTerminal(at.in) {
+		if tty, err := os.Open("/dev/tty"); err == nil {
+			in, closeIn = tty, tty.Close
+		}
+	}
+	r, err := cancelreader.NewReader(in)
+	if err != nil {
+		closeIn()
+		return keyReader{}, err
+	}
+	return keyReader{r, closeIn}, nil
+}
+
+type keyReader struct {
+	cancelreader.CancelReader
+	closeIn func() error
+}
+
+func (k keyReader) Close() error {
+	k.CancelReader.Close()
+	return k.closeIn()
+}
+
+// ended records how the job ended, for mm jobs --live to show.
+func (at *attachment) ended(summary string, ok bool) {
+	at.outcome, at.outcomeOK = upperFirst(at.job.Title())+" "+summary, ok
 }
 
 func (at *attachment) endSummary(e *jobs.Exit) string {

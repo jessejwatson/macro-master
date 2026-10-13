@@ -141,7 +141,7 @@ func TestDetachRefusalsAndErrors(t *testing.T) {
 		{[]string{"attach"}, "no jobs are running"},
 		{[]string{"attach", "9"}, `no job "9"`},
 		{[]string{"kill", "nope"}, `no job "nope"`},
-		{[]string{"jobs", "x"}, "usage: mm jobs [--all | clear]"},
+		{[]string{"jobs", "x"}, "usage: mm jobs [--all | --live | clear]"},
 	}
 	for _, c := range cases {
 		if code := ta.run(nil, c.args...); code == 0 || !strings.Contains(ta.err.String(), c.want) {
