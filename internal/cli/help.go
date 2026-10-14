@@ -166,7 +166,7 @@ Looks:
   previews macros with bat when it's installed.
 
 Updates:
-  Once a day the picker looks for a newer mm and, when there is one, says
+  Every few hours the picker looks for a newer mm and, when there is one, says
   so and how to get it. MM_NO_UPDATE_CHECK=1 turns this off.
 
 Job settings (in mm config):

@@ -15,14 +15,17 @@ import (
 	"macro-master/internal/store"
 )
 
-// mm looks, at most once a day, for a newer version than its own, so the
-// picker can say there's one and how to get it. Through Homebrew, newer
+// mm looks, at most every few hours, for a newer version than its own, so
+// the picker can say there's one and how to get it. Through Homebrew, newer
 // means in the tap's formula, as that's what brew upgrade installs;
 // otherwise it means a newer tag on GitHub.
 const (
 	tapFormulaURL = "https://raw.githubusercontent.com/jessejwatson/homebrew-tap/HEAD/Formula/macro-master.rb"
 	tagsURL       = "https://api.github.com/repos/jessejwatson/macro-master/tags?per_page=100"
-	updateEvery   = 24 * time.Hour
+	updateEvery   = 3 * time.Hour
+	// updateWait is how long the picker waits on a look before drawing;
+	// a slower one shows next time.
+	updateWait = 300 * time.Millisecond
 )
 
 // updateFile is what the last look found, kept between runs.
@@ -111,9 +114,10 @@ func (a *App) availableUpdate(source string) (latest string, stale bool) {
 	return "", stale
 }
 
-// updateNotice is the line saying there's a newer mm and how to get it, from
-// the last look, or "". When that look is a day old it looks again in the
-// background, for next time; the picker doesn't wait on the network.
+// updateNotice is the line saying there's a newer mm and how to get it, or
+// "". When the last look is old it looks again, waiting up to updateWait
+// for the answer; past that the look carries on in the background, for
+// next time.
 func (a *App) updateNotice(u ui) string {
 	if !a.updateCheckWanted() {
 		return ""
@@ -122,7 +126,16 @@ func (a *App) updateNotice(u ui) string {
 	source := updateSource(brew)
 	latest, stale := a.availableUpdate(source)
 	if stale {
-		go a.refreshUpdate(source)
+		done := make(chan struct{})
+		go func() {
+			a.refreshUpdate(source)
+			close(done)
+		}()
+		select {
+		case <-done:
+			latest, _ = a.availableUpdate(source)
+		case <-time.After(updateWait):
+		}
 	}
 	if latest == "" {
 		return ""
@@ -133,7 +146,11 @@ func (a *App) updateNotice(u ui) string {
 // refreshUpdate looks for the newest version at source and keeps what it
 // found; on failure it leaves the last look, to try again next time.
 func (a *App) refreshUpdate(source string) {
-	found, err := fetchLatest(source)
+	fetch := a.FetchLatest
+	if fetch == nil {
+		fetch = fetchLatest
+	}
+	found, err := fetch(source)
 	if err != nil {
 		return
 	}

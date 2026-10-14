@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -104,5 +105,42 @@ func TestUpdateShowsInThePicker(t *testing.T) {
 	ta.run(nil, "alpha")
 	if strings.Contains(ta.err.String(), "is out") {
 		t.Fatalf("mm alpha:\n%s", ta.err)
+	}
+}
+
+func TestUpdateShowsOnTheRunThatLooks(t *testing.T) {
+	ta := newApp(t)
+	ta.Interactive = true
+	ta.save(t, "personal/alpha", "#!/bin/sh\necho alpha\n")
+	ta.Version = "0.1.12"
+	ta.run(nil, "lib", "ls")
+	// The last look is old and found nothing newer; this one finds 0.1.13.
+	writeUpdateFile(t, ta, updateFile{Checked: time.Now().Add(-4 * time.Hour), Source: tagsURL, Latest: "0.1.12"})
+	ta.FetchLatest = func(string) (string, error) { return "0.1.13", nil }
+	ta.run(ans("\n"))
+	if !strings.Contains(ta.err.String(), "● mm 0.1.13 is out") {
+		t.Fatalf("picker:\n%s", ta.err)
+	}
+}
+
+func TestSlowUpdateLookDoesntHoldUpThePicker(t *testing.T) {
+	ta := newApp(t)
+	ta.Interactive = true
+	ta.save(t, "personal/alpha", "#!/bin/sh\necho alpha\n")
+	ta.Version = "0.1.12"
+	ta.run(nil, "lib", "ls")
+	release := make(chan struct{})
+	defer close(release)
+	ta.FetchLatest = func(string) (string, error) {
+		<-release // fails once the test is over, so nothing's written after
+		return "", errors.New("too slow")
+	}
+	start := time.Now()
+	ta.run(ans("\n"))
+	if d := time.Since(start); d > updateWait+time.Second {
+		t.Fatalf("picker waited %v on the look", d)
+	}
+	if strings.Contains(ta.err.String(), "is out") {
+		t.Fatalf("shows an update it hasn't found:\n%s", ta.err)
 	}
 }

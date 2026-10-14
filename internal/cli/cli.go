@@ -57,6 +57,9 @@ type App struct {
 	ReadSecret func(prompt string) (string, error)
 	Hosts      *hosts.Client
 	Tokens     *hosts.Tokens
+	// FetchLatest reads the newest mm version at an update source. Nil
+	// asks the network; tests replace it.
+	FetchLatest func(source string) (string, error)
 
 	store        *store.Store
 	gitAvailable *bool

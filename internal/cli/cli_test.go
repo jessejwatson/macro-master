@@ -39,6 +39,7 @@ func newApp(t *testing.T) *testApp {
 		},
 	}
 	ta.ReadClipboard = func() (string, error) { return ta.clip, nil }
+	ta.FetchLatest = func(string) (string, error) { return "", errors.New("tests are offline") }
 	ta.Spawn = func(args []string) error {
 		ta.spawned = append(ta.spawned, args)
 		return nil
