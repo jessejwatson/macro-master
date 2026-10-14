@@ -298,7 +298,25 @@ func (a *App) ask(question string) (string, error) {
 	if a.Prompts == nil {
 		return "", errors.New("this needs a terminal to answer questions")
 	}
+	if a.promptTTY != nil {
+		return a.askEdit(question)
+	}
 	a.printQuestion(question)
+	return a.readAnswer()
+}
+
+// askPlain asks a question and reads the answer as the terminal sends it,
+// with no editing, for answers that mustn't be echoed.
+func (a *App) askPlain(question string) (string, error) {
+	if a.Prompts == nil {
+		return "", errors.New("this needs a terminal to answer questions")
+	}
+	a.printQuestion(question)
+	return a.readAnswer()
+}
+
+// readAnswer reads a whole line of answer.
+func (a *App) readAnswer() (string, error) {
 	line, err := a.Prompts.ReadString('\n')
 	if err != nil && (err != io.EOF || line == "") {
 		fmt.Fprintln(a.Stderr)

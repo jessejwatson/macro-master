@@ -105,5 +105,5 @@ func (a *App) readSecret(prompt string) (string, error) {
 			}()
 		}
 	}
-	return a.ask(prompt)
+	return a.askPlain(prompt) // editing would echo the token
 }
