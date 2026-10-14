@@ -165,6 +165,10 @@ Looks:
   NO_COLOR=1 get plain text. MM_ICONS=nerd uses Nerd Font icons. The picker
   previews macros with bat when it's installed.
 
+Updates:
+  Once a day the picker looks for a newer mm and, when there is one, says
+  so and how to get it. MM_NO_UPDATE_CHECK=1 turns this off.
+
 Job settings (in mm config):
   Notify when done: desktop, a notification when a job ends and nobody's
   attached; bell, a bell in attached terminals; both; or off. A desktop

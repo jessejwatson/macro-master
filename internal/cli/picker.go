@@ -114,6 +114,10 @@ func (a *App) pick(refs []store.Ref, running []*jobs.Meta, actions bool) (pickIt
 	if !a.Interactive {
 		return pickItem{}, "", errors.New("the picker needs a terminal; run mm <name> instead")
 	}
+	notice := ""
+	if actions {
+		notice = a.updateNotice(a.errUI())
+	}
 	if fzf, err := a.lookPath("fzf"); err == nil {
 		for {
 			var items []pickItem
@@ -121,7 +125,7 @@ func (a *App) pick(refs []store.Ref, running []*jobs.Meta, actions bool) (pickIt
 				items = append(items, pickItem{job: m})
 			}
 			items = append(items, a.pickItems(refs)...)
-			it, key, err := a.pickFzf(fzf, items, actions)
+			it, key, err := a.pickFzf(fzf, items, actions, notice)
 			if err != nil {
 				return it, "", err
 			}
@@ -144,6 +148,9 @@ func (a *App) pick(refs []store.Ref, running []*jobs.Meta, actions bool) (pickIt
 			}
 			return it, actRun, nil
 		}
+	}
+	if notice != "" {
+		fmt.Fprintln(a.Stderr, notice)
 	}
 	ref, err := a.pickMenu(a.pickItems(refs))
 	return pickItem{ref: ref}, actRun, err
@@ -177,7 +184,8 @@ func (a *App) pickItems(refs []store.Ref) []pickItem {
 	return items
 }
 
-func (a *App) pickFzf(fzf string, items []pickItem, actions bool) (pickItem, string, error) {
+// pickFzf runs fzf over items; notice, when there is one, heads the list.
+func (a *App) pickFzf(fzf string, items []pickItem, actions bool, notice string) (pickItem, string, error) {
 	u := a.errUI() // fzf draws on the terminal through stderr/tty
 	var in bytes.Buffer
 	byKey := map[string]pickItem{}
@@ -223,6 +231,9 @@ func (a *App) pickFzf(fzf string, items []pickItem, actions bool) (pickItem, str
 			header = strings.TrimPrefix(header+"\n[new]/[changed]: shared, checked before it runs", "\n")
 			break
 		}
+	}
+	if notice != "" {
+		header = strings.TrimSuffix(notice+"\n"+header, "\n")
 	}
 	if header != "" {
 		args = append(args, "--header="+header)
