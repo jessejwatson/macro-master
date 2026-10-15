@@ -257,14 +257,18 @@ func (a *App) editConfig(report bool) error {
 	}
 }
 
+// editorName is $EDITOR, or vi when it isn't set.
+func (a *App) editorName() string {
+	if e := a.Getenv("EDITOR"); e != "" {
+		return e
+	}
+	return "vi"
+}
+
 // runEditor opens path in $EDITOR, through sh so EDITOR can carry
 // arguments, e.g. "code -w".
 func (a *App) runEditor(path string) error {
-	editor := a.Getenv("EDITOR")
-	if editor == "" {
-		editor = "vi"
-	}
-	cmd := exec.Command("sh", "-c", editor+` "$1"`, "mm-edit", path)
+	cmd := exec.Command("sh", "-c", a.editorName()+` "$1"`, "mm-edit", path)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = a.Stdin, a.Stdout, a.Stderr
 	if f, ok := a.Stdin.(*os.File); !ok || !isTerminal(f) {
 		// The editor needs the terminal even when stdin is busy.

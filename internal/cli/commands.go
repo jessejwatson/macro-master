@@ -48,12 +48,25 @@ func (a *App) cmdAdd(args []string) error {
 		}
 		raw = string(b)
 	} else if raw, err = a.ReadClipboard(); err != nil {
-		return err
+		if a.Prompts == nil {
+			return fmt.Errorf("can't read the clipboard: %v; use mm add <name> --stdin instead", err)
+		}
+		// Typically an SSH session, where the clipboard is on the other end.
+		a.warnf("can't read the clipboard: %v", err)
+		a.notef("Opening %s to type the command instead.", a.editorName())
+		source = "editor"
+		if raw, err = a.writeInEditor(ref); err != nil {
+			return err
+		}
 	}
 	text := macro.Clean(raw)
 	if strings.TrimSpace(text) == "" {
-		if source == "clipboard" {
+		switch source {
+		case "clipboard":
 			return errors.New("the clipboard is empty; copy a command first, or use --stdin")
+		case "editor":
+			a.nothing("The editor was left empty; nothing saved.")
+			return errCancelled
 		}
 		return errors.New("stdin was empty; nothing to save")
 	}
@@ -124,6 +137,24 @@ func (a *App) cmdAdd(args []string) error {
 	u := a.errUI()
 	a.done("Saved %s. Run it with: %s", u.bold(ref.ID()), u.fg(colCmd, "mm "+a.store.ShortAddr(ref)))
 	return nil
+}
+
+// writeInEditor opens an empty file for ref's macro in $EDITOR and returns
+// what was written there.
+func (a *App) writeInEditor(ref store.Ref) (string, error) {
+	tmp, err := os.CreateTemp("", "mm-"+ref.Leaf()+"-*"+macro.Ext)
+	if err != nil {
+		return "", err
+	}
+	defer os.Remove(tmp.Name())
+	if err := tmp.Close(); err != nil {
+		return "", err
+	}
+	if err := a.runEditor(tmp.Name()); err != nil {
+		return "", fmt.Errorf("the editor exited with an error (%v), so nothing was saved", err)
+	}
+	b, err := os.ReadFile(tmp.Name())
+	return string(b), err
 }
 
 func describePlaceholders(ph []macro.Placeholder) string {

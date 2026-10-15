@@ -170,6 +170,42 @@ func TestAddErrors(t *testing.T) {
 	}
 }
 
+func TestAddFallsBackToEditor(t *testing.T) {
+	ta := newApp(t)
+	ta.ReadClipboard = func() (string, error) { return "", errors.New("xclip failed: Can't open display") }
+	dir := t.TempDir()
+	editor := func(name, script string) string {
+		p := filepath.Join(dir, name)
+		os.WriteFile(p, []byte("#!/bin/sh\n"+script+"\n"), 0o755)
+		return p
+	}
+
+	if code := ta.run(nil, "add", "x"); code == 0 || !strings.Contains(ta.err.String(), "Can't open display; use mm add <name> --stdin") {
+		t.Errorf("no terminal: exit %d, stderr %q", code, ta.err)
+	}
+
+	ta.env["EDITOR"] = editor("empty", "true")
+	if code := ta.run(ans("\n\n"), "add", "x"); code == 0 || !strings.Contains(ta.err.String(), "left empty") || ta.exists("personal/x") {
+		t.Errorf("empty editor: exit %d, stderr %q", code, ta.err)
+	}
+
+	ta.env["EDITOR"] = editor("fail", `echo "echo hi" > "$1"; exit 1`)
+	if code := ta.run(ans("\n\n"), "add", "x"); code == 0 || ta.exists("personal/x") {
+		t.Errorf("failed editor saved: exit %d", code)
+	}
+
+	ta.env["EDITOR"] = editor("ok", `echo "echo hi" > "$1"`)
+	code := ta.run(ans("\n\n"), "add", "x")
+	for _, want := range []string{"can't read the clipboard: xclip failed: Can't open display", "Opening " + ta.env["EDITOR"], "from the editor"} {
+		if !strings.Contains(ta.err.String(), want) {
+			t.Errorf("stderr missing %q:\n%s", want, ta.err)
+		}
+	}
+	if code != 0 || !strings.Contains(ta.read(t, "personal/x"), "echo hi") {
+		t.Errorf("add from editor: exit %d, file %q", code, ta.read(t, "personal/x"))
+	}
+}
+
 func TestRunPassesArgsEnvAndExitCode(t *testing.T) {
 	ta := newApp(t)
 	ta.save(t, "personal/hello", "#!/bin/sh\necho \"$1 $2 $MM_MACRO $MM_LIBRARY\"\nexit 3\n")

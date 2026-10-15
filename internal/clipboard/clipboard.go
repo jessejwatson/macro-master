@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 )
 
 // tools lists paste commands to try, in order, for each platform.
@@ -20,7 +21,8 @@ var tools = map[string][][]string{
 	},
 }
 
-// Read returns the clipboard text.
+// Read returns the clipboard text. Its errors say only why the clipboard
+// couldn't be read; callers add what to do instead.
 func Read() (string, error) {
 	candidates := tools[runtime.GOOS]
 	if runtime.GOOS == "linux" && os.Getenv("WAYLAND_DISPLAY") == "" {
@@ -33,14 +35,20 @@ func Read() (string, error) {
 		}
 		out, err := exec.Command(path, argv[1:]...).Output()
 		if err != nil {
-			return "", fmt.Errorf("%s failed (%v); try mm add <name> --stdin instead", argv[0], err)
+			var exit *exec.ExitError
+			if errors.As(err, &exit) {
+				if msg, _, _ := strings.Cut(strings.TrimSpace(string(exit.Stderr)), "\n"); msg != "" {
+					return "", fmt.Errorf("%s failed: %s", argv[0], msg)
+				}
+			}
+			return "", fmt.Errorf("%s failed (%v)", argv[0], err)
 		}
 		return string(out), nil
 	}
 	switch runtime.GOOS {
 	case "linux":
-		return "", errors.New("no clipboard tool found; install wl-clipboard, xclip or xsel, or use mm add <name> --stdin")
+		return "", errors.New("no clipboard tool found (install wl-clipboard, xclip or xsel)")
 	default:
-		return "", errors.New("can't read the clipboard on this system; use mm add <name> --stdin")
+		return "", errors.New("mm can't read the clipboard on this system")
 	}
 }

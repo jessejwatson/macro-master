@@ -58,7 +58,8 @@ Usage:
   mm -d <name> [args...]        Run a macro detached, in the background
 
 Saving and changing macros:
-  mm add <name>                 Save the clipboard as a macro, after a preview
+  mm add <name>                 Save the clipboard as a macro, after a preview;
+                                with no clipboard (e.g. over SSH) $EDITOR opens
   mm add <lib>/<name>           Same, into a specific library
   mm add web/<name>             Into a folder (made if needed); nest up to 5 deep
   mm add <name> --stdin         Read the macro from stdin instead
