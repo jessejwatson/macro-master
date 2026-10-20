@@ -75,7 +75,11 @@ func (m *Meta) notification() notification {
 // Notify shows a desktop notification that m has ended. Missing tools are
 // ignored: notifications are a nicety.
 func Notify(m *Meta) {
-	cmd := notifyCommand(runtime.GOOS, m.notification())
+	show(m.notification())
+}
+
+func show(n notification) {
+	cmd := notifyCommand(runtime.GOOS, n)
 	if cmd == nil || cmd.Start() != nil {
 		return
 	}
@@ -86,6 +90,12 @@ func Notify(m *Meta) {
 	case <-time.After(5 * time.Second):
 		cmd.Process.Kill()
 	}
+}
+
+// NotifyMessage shows a desktop notification that isn't about a job's
+// end, such as a hotkey that couldn't start its macro.
+func NotifyMessage(title, subtitle, body string, ok, sound bool) {
+	show(notification{title: title, subtitle: subtitle, body: body, ok: ok, sound: sound})
 }
 
 // notifyCommand is the command that shows n on goos, or nil when there's

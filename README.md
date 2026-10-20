@@ -7,7 +7,10 @@ plain folders or git repos that sync automatically, so a team can share
 macros. Long-running macros can run detached (`mm -d <name>`) and be
 reattached later with `mm attach`, to watch or type into them. Aliases
 (`mm alias add dp web/deploy env=prod`) make a macro a command of its own,
-typed without `mm`, through the shell hook from `mm init`. `mm config`
+typed without `mm`, through the shell hook from `mm init`. On macOS, key
+bindings (`mm bind add cmd+shift+d web/deploy`) run a macro as a detached
+job from any app, through a small background service started with
+`mm bind service install`. `mm config`
 opens a settings panel. See `macro-master-plan.md` for the full design.
 
 ## Build and test
@@ -18,7 +21,8 @@ make build                 # bin/mm
 make install               # copies bin/mm to ~/.local/bin (PREFIX=... to change)
 ```
 
-Requires Go and git, on macOS or Linux. Go dependencies are
+Requires Go and git, on macOS or Linux. On macOS the build uses cgo for
+global hotkeys, so it also needs the Xcode command line tools. Go dependencies are
 [lipgloss](https://github.com/charmbracelet/lipgloss) for colours, panels and
 trees, [Bubble Tea](https://github.com/charmbracelet/bubbletea) and
 [Bubbles](https://github.com/charmbracelet/bubbles) for the settings panel,

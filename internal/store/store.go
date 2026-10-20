@@ -4,7 +4,9 @@
 //	  config.json
 //	  state.json
 //	  aliases                alias names for the shell hook, from config.json
-//	  auth.json              tokens on Linux, mode 0600
+//	  hotkeys.json           what the hotkey daemon registered (mm bind)
+//	  hotkeys.log            hotkey daemon output
+//	  auth.json             tokens on Linux, mode 0600
 //	  sync.log               background sync output
 //	  jobs/<id>/             detached jobs (see package jobs)
 //	  conflicts/<lib>/       local versions set aside by sync
@@ -40,6 +42,7 @@ type Config struct {
 	Hosts          map[string]HostConfig `json:"hosts,omitempty"`
 	Jobs           JobsConfig            `json:"jobs,omitzero"`
 	Aliases        map[string]Alias      `json:"aliases,omitempty"`
+	Bindings       map[string]Binding    `json:"bindings,omitempty"`
 }
 
 // JobsConfig controls detached jobs. Empty fields take the defaults.
@@ -157,6 +160,9 @@ func (s *Store) CheckConfig(c Config) error {
 		return errors.New("jobs.keep_max can't be negative")
 	}
 	if err := checkAliases(c.Aliases); err != nil {
+		return err
+	}
+	if err := checkBindings(c.Bindings); err != nil {
 		return err
 	}
 	for name, h := range c.Hosts {

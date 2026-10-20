@@ -126,6 +126,25 @@ Aliases:
   name your shell already uses, as an alias, function or command, is left
   alone. Moving a macro takes its aliases along; deleting it removes them.
 
+Key bindings (macOS):
+  mm bind add <keys> <macro> [k=v...] [--quiet]
+                                Run the macro as a detached job when <keys>
+                                are pressed, in any app, e.g. cmd+shift+d
+                                or ctrl+alt+f5; --quiet turns off its
+                                notifications
+  mm bind ls                    List bindings and whether they're active
+  mm bind rm <keys>             Remove a binding
+  mm bind service install       Start the hotkey service, and at each login;
+                                run again to pick up a new PATH
+  mm bind service uninstall     Stop and remove the hotkey service
+  mm bind service status        Show whether it's running
+  Keys are ctrl, alt (opt), shift and cmd joined with + to a letter,
+  digit, punctuation, f1-f20, space, return, tab, esc, delete, an arrow,
+  home, end, pageup or pagedown. A hotkey can't ask anything, so each
+  {{placeholder}} needs a default or a value in the binding. A shared
+  macro that changed since you trusted it doesn't run; a notification says
+  so. Moving a macro takes its bindings along; deleting it removes them.
+
 Settings:
   mm config                     Change settings in a panel; e opens the file
   mm config edit                Edit config.json in $EDITOR, checked on save

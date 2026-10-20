@@ -11,6 +11,7 @@ import (
 
 	"macro-master/internal/gitx"
 	"macro-master/internal/hosts"
+	"macro-master/internal/hotkey"
 	"macro-master/internal/macro"
 	"macro-master/internal/store"
 )
@@ -286,7 +287,28 @@ func fishQuote(s string) string {
 
 var subcommands = []string{
 	"add", "edit", "show", "print", "rm", "mv", "rename", "ls", "fav", "lib",
-	"sync", "auth", "trust", "init", "completion", "run", "help", "alias",
+	"sync", "auth", "trust", "init", "completion", "run", "help", "alias", "bind",
+}
+
+// comboCands completes a key combination: after what's typed up to the
+// last +, each modifier not used yet and then each key.
+func comboCands(cur string) []string {
+	head := ""
+	if i := strings.LastIndex(cur, "+"); i >= 0 {
+		head = cur[:i+1]
+	}
+	var out []string
+	for _, m := range hotkey.Modifiers() {
+		if !strings.Contains("+"+head, "+"+m+"+") {
+			out = append(out, head+m+"+")
+		}
+	}
+	if head != "" {
+		for _, k := range hotkey.Keys() {
+			out = append(out, head+k)
+		}
+	}
+	return out
 }
 
 // addresses lists every way to name each id that resolves to just that
@@ -460,6 +482,22 @@ func complete(s *store.Store, words []string) []string {
 				cands = macros()
 			case len(prev) > 3 && prev[1] == "add":
 				cands = append(placeholders(prev[3]), "--force")
+			}
+		case "bind":
+			bound := func() []string { return slices.Sorted(maps.Keys(s.Config.Bindings)) }
+			switch {
+			case len(prev) == 1:
+				cands = []string{"ls", "add", "rm", "service"}
+			case len(prev) == 2 && prev[1] == "rm":
+				cands = bound()
+			case len(prev) == 2 && prev[1] == "service":
+				cands = []string{"install", "uninstall", "status"}
+			case len(prev) == 2 && prev[1] == "add":
+				cands = comboCands(cur)
+			case len(prev) == 3 && prev[1] == "add":
+				cands = append(macros(), aliasNames()...)
+			case len(prev) > 3 && prev[1] == "add":
+				cands = append(placeholders(prev[3]), "--quiet")
 			}
 		case "__alias": // an alias's own completion: mm __alias <alias> ...
 			if len(prev) > 1 {

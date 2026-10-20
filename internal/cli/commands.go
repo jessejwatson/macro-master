@@ -263,6 +263,9 @@ func (a *App) cmdShow(args []string) error {
 	if al := a.describeAliases(ref); al != "" {
 		fmt.Fprintf(w, "Aliases:\t%s\n", al)
 	}
+	if kb := a.describeBindings(ref); kb != "" {
+		fmt.Fprintf(w, "Keys:\t%s\n", kb)
+	}
 	for _, sg := range a.suggestionsFor(ref, m.Aliases) {
 		fmt.Fprintf(w, "Suggests:\t%s (mm alias accept %s)\n", strings.Join(append([]string{sg.name}, sg.args...), " "), sg.name)
 	}
@@ -308,6 +311,9 @@ func (a *App) showCard(u ui, ref store.Ref, m macro.Macro, content string) strin
 	if al := a.describeAliases(ref); al != "" {
 		rows = append(rows, kv{"Aliases", u.fg(colCmd, al)})
 	}
+	if kb := a.describeBindings(ref); kb != "" {
+		rows = append(rows, kv{"Keys", u.fg(colCmd, kb)})
+	}
 	for _, sg := range a.suggestionsFor(ref, m.Aliases) {
 		rows = append(rows, kv{"Suggests", u.fg(colCmd, strings.Join(append([]string{sg.name}, sg.args...), " ")) + u.faint(" (mm alias accept "+sg.name+")")})
 	}
@@ -336,8 +342,15 @@ func (a *App) cmdRm(args []string) error {
 		return err
 	}
 	q := "Delete " + ref.ID() + "?"
+	var also []string
 	if names := a.store.Config.AliasesFor(ref.ID()); len(names) > 0 {
-		q = fmt.Sprintf("Delete %s and its alias(es) %s?", ref.ID(), strings.Join(names, ", "))
+		also = append(also, "its alias(es) "+strings.Join(names, ", "))
+	}
+	if keys := a.store.Config.BindingsFor(ref.ID()); len(keys) > 0 {
+		also = append(also, "its key binding(s) "+a.describeBindingKeys(keys))
+	}
+	if len(also) > 0 {
+		q = fmt.Sprintf("Delete %s and %s?", ref.ID(), strings.Join(also, " and "))
 	}
 	ok, err := a.confirm(q, false)
 	if err != nil {
@@ -360,10 +373,14 @@ func (a *App) cmdRm(args []string) error {
 		return err
 	}
 	aliases := a.store.Config.AliasesFor(ref.ID())
-	if len(aliases) > 0 {
+	keys := a.store.Config.BindingsFor(ref.ID())
+	if len(aliases) > 0 || len(keys) > 0 {
 		if err := a.store.UpdateConfig(func(c *store.Config) {
 			for _, n := range aliases {
 				delete(c.Aliases, n)
+			}
+			for _, k := range keys {
+				delete(c.Bindings, k)
 			}
 		}); err != nil {
 			return err
@@ -372,6 +389,9 @@ func (a *App) cmdRm(args []string) error {
 	a.done("Deleted %s.", a.errUI().bold(ref.ID()))
 	if len(aliases) > 0 {
 		a.notef("Also removed its alias(es): %s.", strings.Join(aliases, ", "))
+	}
+	if len(keys) > 0 {
+		a.notef("Also removed its key binding(s): %s.", a.describeBindingKeys(keys))
 	}
 	return nil
 }

@@ -30,7 +30,7 @@ var Reserved = map[string]bool{
 	"add": true, "edit": true, "show": true, "print": true, "rm": true,
 	"mv": true, "ls": true, "fav": true, "lib": true, "sync": true,
 	"auth": true, "trust": true, "init": true, "completion": true,
-	"alias": true, "run": true, "rename": true, "help": true, "version": true,
+	"alias": true, "bind": true, "run": true, "rename": true, "help": true, "version": true,
 	"__complete": true,
 }
 

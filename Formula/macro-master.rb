@@ -28,6 +28,10 @@ class MacroMaster < Formula
         zsh:  eval "$(mm init zsh)"       in ~/.zshrc
         bash: eval "$(mm init bash)"      in ~/.bashrc
         fish: mm init fish | source       in ~/.config/fish/config.fish
+
+      On macOS, `mm bind add <keys> <macro>` runs a macro from any app when
+      the keys are pressed; start the hotkey service once with:
+        mm bind service install
     EOS
   end
 
@@ -40,6 +44,7 @@ class MacroMaster < Formula
     shell_output("#{bin}/mm alias add greet hi who=alias 2>&1")
     assert_equal "hello alias\n", shell_output("#{bin}/mm __alias greet")
     assert_match "__complete", shell_output("#{bin}/mm completion zsh")
+    assert_match "No key bindings yet", shell_output("#{bin}/mm bind ls 2>&1")
 
     assert_equal "#{testpath}/mm/config.json\n", shell_output("#{bin}/mm config path")
     (testpath/"mm/config.json").write '{"default_library":"personal","jobs":{"notify":"off"}}'

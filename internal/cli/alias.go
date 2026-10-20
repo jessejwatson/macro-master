@@ -86,16 +86,22 @@ func (a *App) cmdAlias(args []string) error {
 // cutForce pulls --force out of args, which may otherwise hold anything
 // to pass to the macro.
 func cutForce(args []string) (bool, []string) {
-	force := false
+	return cutFlag(args, "--force")
+}
+
+// cutFlag pulls the boolean flag out of args, which may otherwise hold
+// anything to pass to a macro.
+func cutFlag(args []string, flag string) (bool, []string) {
+	found := false
 	var rest []string
 	for _, a := range args {
-		if a == "--force" {
-			force = true
+		if a == flag {
+			found = true
 			continue
 		}
 		rest = append(rest, a)
 	}
-	return force, rest
+	return found, rest
 }
 
 // describeAlias is what an alias runs: the macro and its preset args.
@@ -410,12 +416,21 @@ func aliasLabel(u ui, names []string) string {
 	return " " + u.faint("(") + strings.Join(parts, u.faint(", ")) + u.faint(")")
 }
 
-// retargetAliases keeps aliases pointing at macros that moved; see
-// store.Alias.Targets.
+// retargetAliases keeps aliases and key bindings pointing at macros that
+// moved; see store.Alias.Targets.
 func (a *App) retargetAliases(from, to string, prefix bool) error {
+	targets := func(id string) bool { return store.Alias{Macro: id}.Targets(from, prefix) }
 	for _, al := range a.store.Config.Aliases {
-		if al.Targets(from, prefix) {
-			return a.store.UpdateConfig(func(c *store.Config) { c.RetargetAliases(from, to, prefix) })
+		if targets(al.Macro) {
+			return a.store.UpdateConfig(func(c *store.Config) {
+				c.RetargetAliases(from, to, prefix)
+				c.RetargetBindings(from, to, prefix)
+			})
+		}
+	}
+	for _, b := range a.store.Config.Bindings {
+		if targets(b.Macro) {
+			return a.store.UpdateConfig(func(c *store.Config) { c.RetargetBindings(from, to, prefix) })
 		}
 	}
 	return nil

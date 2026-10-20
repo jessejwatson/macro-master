@@ -70,6 +70,9 @@ func (a *App) startJob(ref store.Ref, m macro.Macro, rest []string, name string,
 	job.Argv = append(append(append([]string{}, interp...), script), rest...)
 	job.Rows, job.Cols = rows, cols
 	job.Notify = a.store.Config.Jobs.NotifyMode()
+	if a.jobNotifyOff {
+		job.Notify = "off"
+	}
 	job.Sound = a.store.Config.Jobs.SoundMode()
 	job.Foreground = foreground
 	if err := job.Save(); err != nil {

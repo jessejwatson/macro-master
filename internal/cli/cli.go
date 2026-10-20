@@ -13,6 +13,7 @@ import (
 
 	"macro-master/internal/clipboard"
 	"macro-master/internal/hosts"
+	"macro-master/internal/hotkey"
 	"macro-master/internal/jobs"
 	"macro-master/internal/store"
 )
@@ -60,9 +61,16 @@ type App struct {
 	// FetchLatest reads the newest mm version at an update source. Nil
 	// asks the network; tests replace it.
 	FetchLatest func(source string) (string, error)
+	// Launchctl runs launchctl with args. Nil runs the real one.
+	Launchctl func(args ...string) error
+	// Notify shows a desktop notification. Nil shows a real one.
+	Notify func(title, subtitle, body string, ok bool)
 
 	store        *store.Store
 	gitAvailable *bool
+	// jobNotifyOff starts jobs with notifications off, for a quiet key
+	// binding.
+	jobNotifyOff bool
 }
 
 // exitCode carries a specific exit status up to Run without a message.
@@ -164,6 +172,9 @@ func (a *App) run(args []string) error {
 		}
 		return jobs.Helper(args[1])
 	}
+	if len(args) > 0 && args[0] == hotkey.DaemonArg {
+		return a.cmdHotkeyd()
+	}
 	if len(args) > 0 && args[0] == "__preview" {
 		return a.cmdPreview(args[1:])
 	}
@@ -179,8 +190,11 @@ func (a *App) run(args []string) error {
 			a.warnf("can't update the alias file for your shell: %v", err)
 		}
 	}()
-	background := len(args) >= 2 && args[0] == "sync" && args[1] == "--background"
-	if !background {
+	// A hotkey's run has no terminal to show notices on, and should start
+	// its job without delay.
+	quiet := len(args) >= 2 && args[0] == "sync" && args[1] == "--background" ||
+		len(args) >= 1 && args[0] == "__bind"
+	if !quiet {
 		a.showNotices()
 		if len(args) == 0 || args[0] != "sync" {
 			a.maybeBackgroundSync()
@@ -241,6 +255,10 @@ func (a *App) run(args []string) error {
 		return a.cmdAlias(rest)
 	case "__alias":
 		return a.cmdAliasRun(rest)
+	case "bind":
+		return a.cmdBind(rest)
+	case "__bind":
+		return a.cmdBindFire(rest)
 	}
 	if detach, name, rest, err := runFlags(args); err != nil || detach {
 		if err != nil {
