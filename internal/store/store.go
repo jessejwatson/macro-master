@@ -3,6 +3,7 @@
 //	~/.config/mm/            $XDG_CONFIG_HOME/mm, or $MM_HOME if set
 //	  config.json
 //	  state.json
+//	  aliases                alias names for the shell hook, from config.json
 //	  auth.json              tokens on Linux, mode 0600
 //	  sync.log               background sync output
 //	  jobs/<id>/             detached jobs (see package jobs)
@@ -38,6 +39,7 @@ type Config struct {
 	SyncInterval   string                `json:"sync_interval,omitempty"`
 	Hosts          map[string]HostConfig `json:"hosts,omitempty"`
 	Jobs           JobsConfig            `json:"jobs,omitzero"`
+	Aliases        map[string]Alias      `json:"aliases,omitempty"`
 }
 
 // JobsConfig controls detached jobs. Empty fields take the defaults.
@@ -153,6 +155,9 @@ func (s *Store) CheckConfig(c Config) error {
 	}
 	if c.Jobs.KeepMax != nil && *c.Jobs.KeepMax < 0 {
 		return errors.New("jobs.keep_max can't be negative")
+	}
+	if err := checkAliases(c.Aliases); err != nil {
+		return err
 	}
 	for name, h := range c.Hosts {
 		if h.Type != "" && !slices.Contains(HostTypes, h.Type) {

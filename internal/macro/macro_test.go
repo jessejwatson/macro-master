@@ -22,6 +22,18 @@ func TestParse(t *testing.T) {
 	}
 }
 
+func TestParseAliases(t *testing.T) {
+	content := "#!/usr/bin/env bash\n# alias: dp env=prod\n# description: Deploy\n# alias: ds env=staging\n# alias:\necho {{env}}\n"
+	m := Parse(content)
+	if !reflect.DeepEqual(m.Aliases, []string{"dp env=prod", "ds env=staging"}) || m.Description != "Deploy" {
+		t.Errorf("got %+v", m)
+	}
+	want := "#!/usr/bin/env bash\n# description: Deploy\n# alias: dp env=prod\n# alias: ds env=staging\necho {{env}}\n"
+	if got := Compose(content, ""); got != want {
+		t.Errorf("compose = %q, want %q", got, want)
+	}
+}
+
 func TestParseNoHeader(t *testing.T) {
 	m := Parse("ls -la")
 	if m.Shebang != "" || m.Description != "" || m.Body != "ls -la" {

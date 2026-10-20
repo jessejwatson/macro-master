@@ -111,6 +111,21 @@ Sharing:
   mm trust <name>               Trust a shared macro's current version
   mm auth <host> [--remove]     Store an API token used to check permissions
 
+Aliases:
+  mm alias add <alias> <macro> [k=v...]
+                                Make <alias> a command of its own that runs
+                                the macro, with preset placeholders or args;
+                                --force lets it shadow a command on PATH
+  mm alias ls                   List aliases, and those macros suggest
+  mm alias accept [alias...]    Add aliases macros suggest; with none named,
+                                asks about each
+  mm alias rm <alias>           Remove an alias
+  Aliases need the shell hook (mm init) and appear at the next prompt.
+  Until then, or without it, mm <alias> runs one too. Args typed after an
+  alias follow its presets, so dp env=staging overrides dp's env=prod. A
+  name your shell already uses, as an alias, function or command, is left
+  alone. Moving a macro takes its aliases along; deleting it removes them.
+
 Settings:
   mm config                     Change settings in a panel; e opens the file
   mm config edit                Edit config.json in $EDITOR, checked on save
@@ -118,6 +133,7 @@ Settings:
 
 Shell:
   mm init zsh|bash|fish         Print the shell hook for "# mode: source"
+                                and aliases
   mm completion zsh|bash|fish   Print tab completion for your shell
   mm help, mm --version
 
@@ -147,6 +163,8 @@ Macro headers (optional, at the top of the file):
   # description: ...            Shown in the picker and mm ls
   # mode: source                Run in the current shell, so cd and export
                                 stick; needs eval "$(mm init zsh)" in ~/.zshrc
+  # alias: <alias> [k=v...]     Suggest an alias; nothing changes until you
+                                mm alias accept it. One line per alias
 
 Shared libraries:
   Synced libraries pull in the background every 5 minutes and push your
@@ -179,7 +197,8 @@ Job settings (in mm config):
   it.
 
 Files:
-  ~/.config/mm ($XDG_CONFIG_HOME/mm, or $MM_HOME if set) holds config.json,
-  state.json, sync.log, conflicts/, jobs/<id>/ (each job's output.log)
+  ~/.config/mm ($XDG_CONFIG_HOME/mm, or $MM_HOME if set) holds config.json
+  (aliases are kept there), state.json, aliases (names for the shell hook),
+  sync.log, conflicts/, jobs/<id>/ (each job's output.log)
   and libraries/<library>/<name>.sh.
 `

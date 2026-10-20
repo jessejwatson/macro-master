@@ -31,11 +31,12 @@ const (
 var errPickCancelled = exitCode(130)
 
 type pickItem struct {
-	ref   store.Ref
-	fav   bool
-	desc  string
-	trust string     // "", "new" or "changed"
-	job   *jobs.Meta // a running job instead of a macro
+	ref     store.Ref
+	fav     bool
+	desc    string
+	trust   string     // "", "new" or "changed"
+	aliases []string   // names of the macro's aliases
+	job     *jobs.Meta // a running job instead of a macro
 }
 
 // key is the hidden first field fzf passes to the preview and back.
@@ -63,7 +64,7 @@ func (it pickItem) label(u ui) string {
 		dir, name := path.Split(id)
 		id = u.faint(dir) + u.bold(name)
 	}
-	s := star + " " + id
+	s := star + " " + id + aliasLabel(u, it.aliases)
 	if it.trust != "" {
 		c := colWarn
 		if it.trust == trustChanged {
@@ -163,10 +164,11 @@ func (a *App) pickItems(refs []store.Ref) []pickItem {
 	for i, r := range refs {
 		content, _ := r.Read()
 		items[i] = pickItem{
-			ref:   r,
-			fav:   a.store.IsFavourite(r.ID()),
-			desc:  macro.Parse(content).Description,
-			trust: a.trustStatus(r, content),
+			ref:     r,
+			fav:     a.store.IsFavourite(r.ID()),
+			desc:    macro.Parse(content).Description,
+			trust:   a.trustStatus(r, content),
+			aliases: a.store.Config.AliasesFor(r.ID()),
 		}
 	}
 	last := a.store.State.LastRun

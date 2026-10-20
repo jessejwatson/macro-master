@@ -22,8 +22,9 @@ class MacroMaster < Formula
       `mm attach` reconnects to it.
       `mm config` opens the settings panel.
 
-      For macros marked `# mode: source` (cd, export and the like), add the
-      shell hook to your shell config:
+      For aliases (`mm alias add`), typed without `mm`, and macros marked
+      `# mode: source` (cd, export and the like), add the shell hook to your
+      shell config:
         zsh:  eval "$(mm init zsh)"       in ~/.zshrc
         bash: eval "$(mm init bash)"      in ~/.bashrc
         fish: mm init fish | source       in ~/.config/fish/config.fish
@@ -36,6 +37,8 @@ class MacroMaster < Formula
     assert_match "personal", shell_output("#{bin}/mm lib ls")
     (testpath/"mm/libraries/personal/hi.sh").write "echo hello {{who:world}}\n"
     assert_equal "hello brew\n", shell_output("#{bin}/mm hi who=brew")
+    shell_output("#{bin}/mm alias add greet hi who=alias 2>&1")
+    assert_equal "hello alias\n", shell_output("#{bin}/mm __alias greet")
     assert_match "__complete", shell_output("#{bin}/mm completion zsh")
 
     assert_equal "#{testpath}/mm/config.json\n", shell_output("#{bin}/mm config path")

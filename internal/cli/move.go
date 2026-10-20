@@ -105,6 +105,9 @@ func (a *App) moveMacro(from, to store.Ref) error {
 	if err := a.store.UpdateState(func(st *store.State) { st.Rename(from.ID(), to.ID()) }); err != nil {
 		return err
 	}
+	if err := a.retargetAliases(from.ID(), to.ID(), false); err != nil {
+		return err
+	}
 	a.keepTrust([]moved{m})
 	a.done("Moved %s to %s.", from.ID(), to.ID())
 	return nil
@@ -197,6 +200,9 @@ func (a *App) moveFolder(src, dst string) error {
 	if err := a.store.UpdateState(func(st *store.State) { st.RenamePrefix(f.ID(), to.ID()) }); err != nil {
 		return err
 	}
+	if err := a.retargetAliases(f.ID(), to.ID(), true); err != nil {
+		return err
+	}
 	a.keepTrust(items)
 	a.done("Moved folder %s/ to %s/ (%d macro(s)).", f.ID(), to.ID(), len(items))
 	return nil
@@ -252,6 +258,9 @@ func (a *App) libRename(oldName, newName string) error {
 		os.Rename(conflicts, filepath.Join(a.store.ConflictsDir(), newName))
 	}
 	if err := a.store.UpdateState(func(st *store.State) { st.RenamePrefix(oldName, newName) }); err != nil {
+		return err
+	}
+	if err := a.retargetAliases(oldName, newName, true); err != nil {
 		return err
 	}
 	if a.store.Config.DefaultLibrary == oldName {

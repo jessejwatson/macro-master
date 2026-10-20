@@ -5,7 +5,9 @@ Save and run macro commands from the terminal. Copy a command, run
 Macros can be organised in folders (`mm web/deploy`), and libraries can be
 plain folders or git repos that sync automatically, so a team can share
 macros. Long-running macros can run detached (`mm -d <name>`) and be
-reattached later with `mm attach`, to watch or type into them. `mm config`
+reattached later with `mm attach`, to watch or type into them. Aliases
+(`mm alias add dp web/deploy env=prod`) make a macro a command of its own,
+typed without `mm`, through the shell hook from `mm init`. `mm config`
 opens a settings panel. See `macro-master-plan.md` for the full design.
 
 ## Build and test

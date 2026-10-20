@@ -136,6 +136,9 @@ func (a *App) cmdAdd(args []string) error {
 	}
 	u := a.errUI()
 	a.done("Saved %s. Run it with: %s", u.bold(ref.ID()), u.fg(colCmd, "mm "+a.store.ShortAddr(ref)))
+	for _, sg := range a.suggestionsFor(ref, parsed.Aliases) {
+		a.notef("It suggests the alias %s; add it with: %s", u.fg(colCmd, sg.name), u.fg(colCmd, "mm alias accept "+sg.name))
+	}
 	return nil
 }
 
@@ -257,6 +260,12 @@ func (a *App) cmdShow(args []string) error {
 	if ph := macro.Placeholders(m.Body); len(ph) > 0 {
 		fmt.Fprintf(w, "Placeholders:\t%s\n", describePlaceholders(ph))
 	}
+	if al := a.describeAliases(ref); al != "" {
+		fmt.Fprintf(w, "Aliases:\t%s\n", al)
+	}
+	for _, sg := range a.suggestionsFor(ref, m.Aliases) {
+		fmt.Fprintf(w, "Suggests:\t%s (mm alias accept %s)\n", strings.Join(append([]string{sg.name}, sg.args...), " "), sg.name)
+	}
 	if t, ok := a.store.State.LastRun[ref.ID()]; ok {
 		fmt.Fprintf(w, "Last run:\t%s\n", t.Local().Format("2 Jan 2006 15:04"))
 	}
@@ -296,6 +305,12 @@ func (a *App) showCard(u ui, ref store.Ref, m macro.Macro, content string) strin
 	if ph := macro.Placeholders(m.Body); len(ph) > 0 {
 		rows = append(rows, kv{"Placeholders", describePlaceholders(ph)})
 	}
+	if al := a.describeAliases(ref); al != "" {
+		rows = append(rows, kv{"Aliases", u.fg(colCmd, al)})
+	}
+	for _, sg := range a.suggestionsFor(ref, m.Aliases) {
+		rows = append(rows, kv{"Suggests", u.fg(colCmd, strings.Join(append([]string{sg.name}, sg.args...), " ")) + u.faint(" (mm alias accept "+sg.name+")")})
+	}
 	if t, ok := a.store.State.LastRun[ref.ID()]; ok {
 		rows = append(rows, kv{"Last run", t.Local().Format("2 Jan 2006 15:04") + u.faint(" ("+ago(t)+")")})
 	}
@@ -320,7 +335,11 @@ func (a *App) cmdRm(args []string) error {
 	if err := a.checkWritable(ref.Library); err != nil {
 		return err
 	}
-	ok, err := a.confirm("Delete "+ref.ID()+"?", false)
+	q := "Delete " + ref.ID() + "?"
+	if names := a.store.Config.AliasesFor(ref.ID()); len(names) > 0 {
+		q = fmt.Sprintf("Delete %s and its alias(es) %s?", ref.ID(), strings.Join(names, ", "))
+	}
+	ok, err := a.confirm(q, false)
 	if err != nil {
 		return err
 	}
@@ -340,7 +359,20 @@ func (a *App) cmdRm(args []string) error {
 	if err := a.store.UpdateState(func(st *store.State) { st.Forget(ref.ID()) }); err != nil {
 		return err
 	}
+	aliases := a.store.Config.AliasesFor(ref.ID())
+	if len(aliases) > 0 {
+		if err := a.store.UpdateConfig(func(c *store.Config) {
+			for _, n := range aliases {
+				delete(c.Aliases, n)
+			}
+		}); err != nil {
+			return err
+		}
+	}
 	a.done("Deleted %s.", a.errUI().bold(ref.ID()))
+	if len(aliases) > 0 {
+		a.notef("Also removed its alias(es): %s.", strings.Join(aliases, ", "))
+	}
 	return nil
 }
 

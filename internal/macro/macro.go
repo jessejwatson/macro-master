@@ -5,6 +5,7 @@
 //	#!/usr/bin/env bash
 //	# description: Flush DNS cache on macOS
 //	# mode: source
+//	# alias: flush
 //	sudo dscacheutil -flushcache
 package macro
 
@@ -29,7 +30,8 @@ var Reserved = map[string]bool{
 	"add": true, "edit": true, "show": true, "print": true, "rm": true,
 	"mv": true, "ls": true, "fav": true, "lib": true, "sync": true,
 	"auth": true, "trust": true, "init": true, "completion": true,
-	"run": true, "rename": true, "help": true, "version": true, "__complete": true,
+	"alias": true, "run": true, "rename": true, "help": true, "version": true,
+	"__complete": true,
 }
 
 // ValidateName reports why name can't be used as a macro or library name.
@@ -56,12 +58,15 @@ type Macro struct {
 	Shebang     string // full first line including "#!", or ""
 	Description string
 	Mode        string // "" or "source"
-	Body        string // everything below the header
+	// Aliases are suggested shell aliases, one "name [args...]" each. They
+	// do nothing until the user accepts them with mm alias accept.
+	Aliases []string
+	Body    string // everything below the header
 }
 
 // Parse splits a macro file into header fields and body.
-// Header lines are the shebang plus leading "# description:" and "# mode:"
-// comments; any other comment belongs to the body.
+// Header lines are the shebang plus leading "# description:", "# mode:"
+// and "# alias:" comments; any other comment belongs to the body.
 func Parse(content string) Macro {
 	var m Macro
 	lines := strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
@@ -80,6 +85,10 @@ func Parse(content string) Macro {
 			m.Description = val
 		case "mode":
 			m.Mode = strings.ToLower(val)
+		case "alias":
+			if val != "" {
+				m.Aliases = append(m.Aliases, val)
+			}
 		}
 	}
 	m.Body = strings.Join(lines[i:], "\n")
@@ -96,7 +105,7 @@ func headerField(line string) (key, val string, ok bool) {
 		return "", "", false
 	}
 	k = strings.ToLower(strings.TrimSpace(k))
-	if k != "description" && k != "mode" {
+	if k != "description" && k != "mode" && k != "alias" {
 		return "", "", false
 	}
 	return k, strings.TrimSpace(v), true
@@ -113,6 +122,9 @@ func (m Macro) String() string {
 	}
 	if m.Mode != "" {
 		b.WriteString("# mode: " + m.Mode + "\n")
+	}
+	for _, a := range m.Aliases {
+		b.WriteString("# alias: " + a + "\n")
 	}
 	b.WriteString(strings.TrimRight(m.Body, "\n") + "\n")
 	return b.String()

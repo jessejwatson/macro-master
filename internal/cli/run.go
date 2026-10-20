@@ -15,7 +15,7 @@ import (
 )
 
 func (a *App) cmdRun(addr string, args []string) error {
-	ref, err := a.resolve(addr)
+	ref, args, err := a.resolveRun(addr, args)
 	if err != nil {
 		return err
 	}
@@ -28,7 +28,7 @@ func (a *App) cmdRunDetached(addr string, args []string, name string) error {
 			return err
 		}
 	}
-	ref, err := a.resolve(addr)
+	ref, args, err := a.resolveRun(addr, args)
 	if err != nil {
 		return err
 	}
@@ -39,11 +39,11 @@ func (a *App) cmdPrint(args []string) error {
 	if len(args) == 0 {
 		return errors.New("usage: mm print <name> [placeholder=value...]")
 	}
-	ref, err := a.resolve(args[0])
+	ref, args, err := a.resolveRun(args[0], args[1:])
 	if err != nil {
 		return err
 	}
-	m, rest, _, err := a.prepare(ref, args[1:])
+	m, rest, _, err := a.prepare(ref, args)
 	if err != nil {
 		return err
 	}

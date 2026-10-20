@@ -173,6 +173,12 @@ func (a *App) run(args []string) error {
 	if err := a.openStore(); err != nil {
 		return err
 	}
+	// Whatever changed config.json, the shell hook picks it up from here.
+	defer func() {
+		if err := a.store.SyncAliasFile(); err != nil {
+			a.warnf("can't update the alias file for your shell: %v", err)
+		}
+	}()
 	background := len(args) >= 2 && args[0] == "sync" && args[1] == "--background"
 	if !background {
 		a.showNotices()
@@ -231,6 +237,10 @@ func (a *App) run(args []string) error {
 		return a.cmdAuth(rest)
 	case "trust":
 		return a.cmdTrust(rest)
+	case "alias":
+		return a.cmdAlias(rest)
+	case "__alias":
+		return a.cmdAliasRun(rest)
 	}
 	if detach, name, rest, err := runFlags(args); err != nil || detach {
 		if err != nil {

@@ -139,7 +139,7 @@ func (a *App) printTree(w io.Writer, refs map[string]store.Ref, prefix string, d
 			star = "★"
 		}
 		// Stars sit in a fixed left column so names indent only by depth.
-		line := fmt.Sprintf("  %s %s%s", star, indent, leaf)
+		line := fmt.Sprintf("  %s %s%s%s", star, indent, leaf, aliasLabel(ui{}, a.store.Config.AliasesFor(r.ID())))
 		if desc := a.description(r); desc != "" {
 			line += "\t" + desc
 		}
@@ -175,7 +175,7 @@ func (a *App) styledTree(u ui, lib, folder string, refs map[string]store.Ref) st
 	root += "  " + u.faint(count)
 
 	label := func(r store.Ref, name string) string {
-		l := u.icon(u.icons.macro, colBorder) + name
+		l := u.icon(u.icons.macro, colBorder) + name + aliasLabel(u, a.store.Config.AliasesFor(r.ID()))
 		if a.store.IsFavourite(r.ID()) {
 			l = u.fg(colWarn, u.icons.fav) + " " + l
 		}
