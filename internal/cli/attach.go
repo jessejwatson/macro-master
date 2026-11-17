@@ -25,6 +25,7 @@ import (
 const (
 	keyCtrlC = 0x03
 	keyEsc   = 0x1b
+	keyLeave = 0x1d // ctrl+]: stops typing, even in a full-screen job
 )
 
 // cmdAttach connects the terminal to a job. A finished job's last output is
@@ -180,7 +181,7 @@ type attachment struct {
 
 	rows, cols int
 	foreground bool // started by mm <macro>, not mm -d: output goes inline
-	alt        bool // inline, the job is on the alternate screen
+	alt        bool // the job is on the alternate screen: full-screen, like vim
 	midLine    bool // inline, the last output didn't end a line
 	typing     bool
 	naming     bool
@@ -394,7 +395,8 @@ func (a *App) showEnd(m *jobs.Meta) error {
 
 // keys handles input. Watching, d detaches, ctrl+c interrupts then kills,
 // i starts typing and n names the job; typing, everything goes to the job
-// until esc. An esc with more keys straight after it, as arrow keys and
+// until ctrl+], or esc unless the job is full-screen, as vim is, and needs
+// esc itself. An esc with more keys straight after it, as arrow keys and
 // alt+key send, goes to the job. Watching, escape sequences are skipped
 // whole: they're special keys, or the terminal answering the job's output
 // (focus, status and version reports), and their letters aren't keys.
@@ -406,7 +408,16 @@ func (at *attachment) keys(b []byte) string {
 			continue
 		}
 		if at.typing {
-			if b[len(b)-1] != keyEsc {
+			if i := bytes.IndexByte(b, keyLeave); i >= 0 {
+				if i > 0 {
+					at.conn.Input(b[:i])
+				}
+				at.typing, at.note = false, ""
+				at.drawToolbar()
+				b = b[i+1:]
+				continue
+			}
+			if at.alt || b[len(b)-1] != keyEsc {
 				at.conn.Input(b)
 				return result
 			}
@@ -568,13 +579,14 @@ func (at *attachment) output(b []byte) {
 			b = b[:i]
 		}
 	}
+	// A full-screen job gets esc while typing, and the toolbar says how
+	// to leave instead. Inline, it uses the terminal's own alternate
+	// screen, and the toolbar follows it there and back.
 	switched := false
+	if i, _, _ := jobs.NextScreenSwitch(b); i >= 0 {
+		switched, at.alt = true, jobs.EndsOnAlt(b)
+	}
 	if at.foreground {
-		// Inline, a full-screen job uses the terminal's own alternate
-		// screen, and the toolbar follows it there and back.
-		if i, _, _ := nextScreenSwitch(b); i >= 0 {
-			switched, at.alt = true, endsOnAlt(b)
-		}
 		if len(b) > 0 {
 			at.midLine = b[len(b)-1] != '\n'
 		}
@@ -612,7 +624,7 @@ func plainScreen(b []byte) []byte {
 	var out []byte
 	alt := false
 	for len(b) > 0 {
-		i, n, enter := nextScreenSwitch(b)
+		i, n, enter := jobs.NextScreenSwitch(b)
 		if i < 0 {
 			if !alt {
 				out = append(out, b...)
@@ -625,34 +637,6 @@ func plainScreen(b []byte) []byte {
 		alt, b = enter, b[i+n:]
 	}
 	return out
-}
-
-// endsOnAlt is true when the last screen switch in b enters the alternate
-// screen.
-func endsOnAlt(b []byte) bool {
-	alt := false
-	for {
-		i, n, enter := nextScreenSwitch(b)
-		if i < 0 {
-			return alt
-		}
-		alt, b = enter, b[i+n:]
-	}
-}
-
-// nextScreenSwitch finds the first switch to or from the alternate screen
-// in b: where it is, how long, and whether it enters.
-func nextScreenSwitch(b []byte) (at, n int, enter bool) {
-	at = -1
-	for _, mode := range []string{"1049", "1047", "47"} {
-		for _, end := range []string{"h", "l"} {
-			seq := "\x1b[?" + mode + end
-			if i := bytes.Index(b, []byte(seq)); i >= 0 && (at < 0 || i < at) {
-				at, n, enter = i, len(seq), end == "h"
-			}
-		}
-	}
-	return at, n, enter
 }
 
 // scanScreen is true when b may reset the scroll region or clear the
@@ -726,9 +710,13 @@ func (at *attachment) toolbar() string {
 		modeStyle = badge.Foreground(colWarn)
 		hints = "job name: " + u.bold(string(at.name)) + "▏  " + u.faint("enter save · esc cancel · empty removes it")
 	case at.typing:
-		mode, hints = " TYPING ", "keys go to the job · esc to detach or name"
+		leave := "esc"
+		if at.alt {
+			leave = "ctrl+]"
+		}
+		mode, hints = " TYPING ", "keys go to the job · "+leave+" to detach or name"
 		if !at.foreground {
-			hints = "keys go to the job · esc back to watching"
+			hints = "keys go to the job · " + leave + " back to watching"
 		}
 		modeStyle = badge.Foreground(colOK)
 	}

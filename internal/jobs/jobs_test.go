@@ -194,6 +194,33 @@ func TestReplayStartsAtALine(t *testing.T) {
 	}
 }
 
+// A full-screen job's replay starts on the alternate screen even when the
+// switch was cut off, so whoever attaches knows the job needs esc.
+func TestReplayKeepsTheAlternateScreen(t *testing.T) {
+	log, err := os.Create(filepath.Join(t.TempDir(), "log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer log.Close()
+	h := &hub{log: log}
+	h.output([]byte("$ vim\r\n\x1b[?10"))
+	h.output([]byte("49h\x1b[Hfile"))
+	if !h.alt {
+		t.Fatal("switch split across reads not seen")
+	}
+	if got := string(h.replay()); got != "$ vim\r\n\x1b[?1049h\x1b[Hfile" {
+		t.Errorf("replay = %q", got)
+	}
+	h.recent, h.trimmed = []byte("\x1b[Hold\nredrawn"), true
+	if got := string(h.replay()); got != "\x1b[?1049hredrawn" {
+		t.Errorf("trimmed replay = %q", got)
+	}
+	h.output([]byte("\x1b[?1049l$ "))
+	if h.alt || bytes.HasPrefix(h.replay(), []byte("\x1b[?1049h")) {
+		t.Error("leaving the alternate screen not seen")
+	}
+}
+
 func TestHelperServesClients(t *testing.T) {
 	root := t.TempDir()
 	m, err := Create(root)

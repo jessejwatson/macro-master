@@ -358,6 +358,28 @@ func TestForegroundRunIsAnAttachedJob(t *testing.T) {
 	}
 }
 
+// A full-screen job, as vim is, gets esc while typing; ctrl+] stops typing
+// instead. Back on the main screen, esc stops typing again.
+func TestFullScreenJobGetsEsc(t *testing.T) {
+	ta := newJobApp(t)
+	ta.save(t, "personal/editor", "printf '\\033[?1049h'\nread -r k\nprintf '\\033[?1049l'\nprintf 'got %s\\n' \"$k\" | cat -v\nsleep 30\n")
+
+	p := startPty(t, ta.Home, "editor")
+	p.waitFor("ctrl+] to detach or name")
+	p.send("\x1b")
+	p.send("x\r")
+	p.waitFor("got ^[x")
+	p.waitFor("esc to detach or name")
+	p.send("\x1b")
+	p.waitFor("WATCHING")
+	p.send("i")
+	p.send("\x1d")
+	p.send("d")
+	if code := p.exit(); code != 0 {
+		t.Errorf("detach exit = %d\n%q", code, p.screen())
+	}
+}
+
 func TestConfirmTakesOneKey(t *testing.T) {
 	ta := newApp(t)
 	ta.save(t, "personal/keep", "echo\n")

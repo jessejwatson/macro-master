@@ -148,6 +148,7 @@ type hub struct {
 	mu       sync.Mutex
 	recent   []byte
 	trimmed  bool // recent has lost its start
+	alt      bool // the job is on the alternate screen
 	clients  map[*client]bool
 	detached bool // a client left before the job ended
 	ended    *Exit
@@ -220,6 +221,12 @@ func (h *hub) output(data []byte) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.recent = append(h.recent, data...)
+	// Look from a little before data too, for a switch split across reads.
+	if seen := h.recent[max(len(h.recent)-len(data)-7, 0):]; bytes.Contains(seen, []byte("\x1b[?")) {
+		if i, _, _ := NextScreenSwitch(seen); i >= 0 {
+			h.alt = EndsOnAlt(seen)
+		}
+	}
 	if over := len(h.recent) - replayMax; over > 0 {
 		h.recent = append(h.recent[:0:0], h.recent[over:]...)
 		h.trimmed = true
@@ -248,13 +255,18 @@ func (h *hub) writeLog(data []byte) {
 }
 
 // replay is the recent output, starting at a line boundary when the start
-// was cut off so it doesn't begin halfway through an escape sequence.
+// was cut off so it doesn't begin halfway through an escape sequence. A
+// full-screen job whose switch to the alternate screen was cut off gets it
+// back, so the client knows.
 func (h *hub) replay() []byte {
 	r := h.recent
 	if h.trimmed {
 		if i := bytes.IndexByte(r, '\n'); i >= 0 {
 			r = r[i+1:]
 		}
+	}
+	if h.alt && !EndsOnAlt(r) {
+		return append([]byte("\x1b[?1049h"), r...)
 	}
 	return append([]byte(nil), r...)
 }
